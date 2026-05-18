@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation"; // 2. Import the tool
 import { LayoutGrid, TrendingUp, BrainCircuit, BookOpenText, Settings, User } from "lucide-react";
+import WeeklyStreak from "./WeeklyStreak";
 
 export default function Sidebar() {
   const pathname = usePathname(); // 3. Get the current URL (e.g., "/" or "/settings")
@@ -58,6 +59,7 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
+      <WeeklyStreak />
     </aside>
   );
 }
