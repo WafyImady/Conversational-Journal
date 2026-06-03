@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+@layer base {
+  /* This targets large screens (laptops/desktops) and scales the base font size down to 80%.
+    We wrap it in a media query so your mobile view doesn't become too tiny to read!
+  */
+  @media (min-width: 1024px) {
+    html {
+      font-size: 80%; 
+    }
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
