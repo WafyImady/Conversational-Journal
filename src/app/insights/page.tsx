@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Sidebar from "@/app/components/Sidebar"; // Updated path!
+import Sidebar from "@/components/Sidebar"; // Updated path!
 import { supabase } from "@/utils/supabaseClient";
 import { BookOpen, CheckCircle2, Plus, RefreshCw, CheckCircle, Edit2, Loader2 } from "lucide-react";
 

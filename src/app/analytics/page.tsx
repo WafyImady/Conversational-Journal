@@ -2,8 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation"; 
-import { supabase } from "@/utils/supabaseClient";
-import Sidebar from "@/app/components/Sidebar";
+import { createClient } from "@/utils/client";
+import Sidebar from "@/components/Sidebar";
 import { Sparkles, X, Plus, Mic, CheckCircle2, Loader2 } from "lucide-react"; 
 
 // Create an interface for our dynamic emotions
@@ -15,6 +15,7 @@ interface EmotionSlider {
 }
 
 function AnalysisContent() {
+  const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const entryId = searchParams.get("id"); // Grab the ID from the URL!

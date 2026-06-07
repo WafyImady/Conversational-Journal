@@ -1,40 +1,50 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Sidebar from "@/app/components/Sidebar";
+import Sidebar from "@/components/Sidebar";
 import { Search, Sparkles, TrendingUp, Calendar as CalendarIcon, Loader2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/utils/supabaseClient";
 
-// --- EMOTION SCORING DICTIONARY ---
-// We use this to translate words into chart math (0 = worst, 100 = best)
+// --- GO-EMOTIONS 28-LABEL SCORING ---
+// 0 = worst, 100 = best
 const emotionScores: Record<string, number> = {
-  joy: 95,
-  love: 85,
-  surprise: 60, // Surprise is neutral/variable
-  fear: 30,     // Equivalent to Anxiety
-  sadness: 20,
-  anger: 15     // Equivalent to High Stress
+  // High Positive
+  admiration: 90, amusement: 85, approval: 80, caring: 85, desire: 80, 
+  excitement: 95, gratitude: 90, joy: 95, love: 95, optimism: 85, pride: 85, relief: 80,
+  // Neutral / Cognitive
+  confusion: 40, curiosity: 60, realization: 60, surprise: 60, neutral: 50,
+  // High Negative / Stress
+  anger: 10, annoyance: 25, disapproval: 25, disgust: 10, disappointment: 20,
+  embarrassment: 20, fear: 15, grief: 5, nervousness: 30, remorse: 15, sadness: 10
 };
 
-// Helper function to color-code and translate HF tags for the UI
+// Helper function to color-code and translate all 28 HF tags for the UI
 const getUIEmotionData = (hfMood: string) => {
-  const m = hfMood?.toLowerCase() || '';
+  const m = hfMood?.toLowerCase() || 'neutral';
   
-  switch(m) {
-    case 'joy':
-    case 'love':
-      return { label: 'Happy', color: 'text-green-600 bg-green-50 border-green-200' };
-    case 'surprise':
-      return { label: 'Surprised', color: 'text-blue-600 bg-blue-50 border-blue-200' };
-    case 'fear':
-      return { label: 'Anxious', color: 'text-purple-600 bg-purple-50 border-purple-200' };
-    case 'anger':
-    case 'sadness':
-      return { label: 'Stressed', color: 'text-orange-600 bg-orange-50 border-orange-200' };
-    default:
-      return { label: 'Neutral', color: 'text-gray-600 bg-gray-50 border-gray-200' };
+  // Group 1: Happy / Positive (Green)
+  if (['admiration', 'amusement', 'approval', 'caring', 'desire', 'excitement', 'gratitude', 'joy', 'love', 'optimism', 'pride', 'relief'].includes(m)) {
+    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-green-600 bg-green-50 border-green-200' };
   }
+  
+  // Group 2: Cognitive / Calm (Blue)
+  if (['curiosity', 'realization', 'surprise'].includes(m)) {
+    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-blue-600 bg-blue-50 border-blue-200' };
+  }
+
+  // Group 3: Anxious / Tense (Purple)
+  if (['confusion', 'embarrassment', 'fear', 'nervousness'].includes(m)) {
+    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-purple-600 bg-purple-50 border-purple-200' };
+  }
+
+  // Group 4: Stressed / Negative (Orange)
+  if (['anger', 'annoyance', 'disappointment', 'disapproval', 'disgust', 'grief', 'remorse', 'sadness'].includes(m)) {
+    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-orange-600 bg-orange-50 border-orange-200' };
+  }
+
+  // Default Fallback (Gray)
+  return { label: 'Neutral', color: 'text-gray-600 bg-gray-50 border-gray-200' };
 };
 
 export default function ArchivePage() {
@@ -72,15 +82,31 @@ export default function ArchivePage() {
       // 3. Process the raw data into UI format
       const formattedEntries = data.map((entry) => {
         const dateObj = new Date(entry.created_at);
-        const emotion = entry.primary_emotion || 'Neutral';
-        const emotionKey = emotion.toLowerCase();
+        
+        let emotion = 'Neutral';
+        
+        // --- THE COMMA SPLITTER ---
+        if (entry.emotions) {
+          let raw = entry.emotions;
+          
+          if (typeof raw === 'string') {
+             // If it's a comma-separated list like "Joy, Love, Anger"
+             // Split it by the comma and grab the first word
+             emotion = raw.split(',')[0].trim();
+          } else if (Array.isArray(raw) && raw.length > 0) {
+             // Just in case some older entries are saved as arrays
+             emotion = typeof raw[0] === 'string' ? raw[0] : (raw[0].label || 'Neutral');
+          }
+        }
+
+        const emotionKey = emotion.toLowerCase(); // Convert "Joy" to "joy"
         
         // Count for "Top Emotion" stat
-        emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1;
+        emotionCounts[emotionKey] = (emotionCounts[emotionKey] || 0) + 1;
 
         // Math for the Chart & Avg Stress
-        const score = emotionScores[emotionKey] !== undefined ? emotionScores[emotionKey] : 50; // Default 50 if word unknown
-        const dateKey = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); // e.g., "Oct 5"
+        const score = emotionScores[emotionKey] !== undefined ? emotionScores[emotionKey] : 50; 
+        const dateKey = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); 
         
         if (!dailyScores[dateKey]) dailyScores[dateKey] = { total: 0, count: 0 };
         dailyScores[dateKey].total += score;
@@ -89,17 +115,18 @@ export default function ArchivePage() {
         globalScoreTotal += score;
         validScoreCount += 1;
 
-        const uiData = getUIEmotionData(emotion); // Get our mapped label and color
+        // Fetch UI colors/labels using your mapping function
+        const uiData = getUIEmotionData(emotionKey);
 
         return {
           id: entry.id,
           date: dateObj.toLocaleDateString('en-US', { day: '2-digit' }),
           month: dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
           time: dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-          mood: uiData.label,       // UI sees "Anxious" instead of "fear"
-          moodColor: uiData.color,  
-          title: entry.title || "Journal Entry",
-          snippet: entry.content || "No summary available..."
+          mood: uiData.label,
+          moodColor: uiData.color,
+          title: "Daily Reflection", 
+          snippet: entry.narrative || "No summary available..." 
         };
       });
 

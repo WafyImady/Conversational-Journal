@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import JournalFeed, { Message } from "@/app/components/JournalFeed";
-import Sidebar from "@/app/components/Sidebar";
-import RightSidebar from "@/app/components/RightSidebar";
-import ChatInput from "@/app/components/ChatInput";
-import { supabase } from "@/utils/supabaseClient";
+import JournalFeed, { Message } from "@/components/JournalFeed";
+import Sidebar from "@/components/Sidebar";
+import RightSidebar from "@/components/RightSidebar";
+import ChatInput from "@/components/ChatInput";
+import { createClient } from "@/utils/client";
 
 export default function Home() {
+  const supabase = createClient();
   const router = useRouter();
 
   // --- 1. THE SESSION TRACKERS ---
@@ -86,19 +87,27 @@ export default function Home() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ transcript: currentTranscript }), 
+        // FIX 1: Send the actual 'text' string so body.text works in your route.ts!
+        body: JSON.stringify({ text: text, transcript: currentTranscript }), 
       });
 
       const data = await response.json();
 
       let finalMessage = "I'm sorry, my brain disconnected for a second. Could you repeat that?";
-      if (data.error) finalMessage = `⚠️ System Error: ${data.error}`;
-      else if (data.message) finalMessage = data.message;
+      if (data.error) {
+        finalMessage = `⚠️ System Error: ${data.error}`;
+      } else if (data.entry && data.entry.narrative) {
+        // FIX 2: Look for 'narrative' inside the 'entry' object instead of 'message'
+        finalMessage = data.entry.narrative;
+      }
 
-      // 1. FIX: Attach the detected emotions to the USER's message
+      // FIX 3: Grab the emotion string from the database entry and wrap it in an array for the UI
+      const detectedEmotionArray = data.entry && data.entry.emotions ? [data.entry.emotions] : [];
+
+      // Attach the detected emotions to the USER's message
       const updatedUserMessage = {
         ...userMessage,
-        emotions: data.detectedEmotions || []
+        emotions: detectedEmotionArray
       };
 
       // 2. Create the AI's message (Echo doesn't have emotions, so we leave them off!)

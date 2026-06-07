@@ -1,72 +1,126 @@
-import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { HfInference } from "@huggingface/inference";
+import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { HfInference } from '@huggingface/inference';
+import { createClient } from '@/utils/server';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
+// Initialize AI Clients
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const hf = new HfInference(process.env.HUGGINGFACE_API_KEY || '');
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const body = await request.json();
-    
-    // 1. Accept the FULL array from the frontend, not just a single text string
-    const { transcript } = body;
-    
-    if (!transcript || !Array.isArray(transcript)) {
-      return NextResponse.json({ error: "Invalid transcript array." }, { status: 400 });
+    // 1. Initialize the secure server client
+    const supabase = await createClient();
+
+    // 2. Ask Supabase who is currently logged in based on the cookies
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    // 3. If no one is logged in, block the request immediately
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized. Please log in." }, { status: 401 });
     }
 
-    // 2. Prep the data for the two different AI brains
-    const latestText = transcript[transcript.length - 1].content;
-    const formattedHistory = transcript
-      .map((msg) => `${msg.role === "user" ? "User" : "Echo"}: ${msg.content}`)
-      .join("\n");
+    // 4. We now have our real, secure User ID!
+    const REAL_USER_ID = user.id; 
 
-    let detectedEmotions = ["Reflective"]; 
-    let aiResponseText = "Thank you for sharing that with me. I'm currently taking a moment to process my thoughts, but I am listening. How else are you feeling today?";
+    const body = await req.json();
+    const latestText = body.text; 
 
-    // --- BRAIN 1: DISTILBERT (The Classifier) ---
+    // ... The rest of your code remains exactly the same! 
+    // Just remember to change PROTOTYPE_USER_ID to REAL_USER_ID
+    // in your STEP 1 (select settings) and STEP 5 (insert journal) queries.
+
+    // ---------------------------------------------------------
+    // STEP 1: FETCH USER PREFERENCES
+    // ---------------------------------------------------------
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('narrative_style, response_length')
+      .eq('user_id', REAL_USER_ID)
+      .single();
+
+    // Set safe defaults just in case they haven't saved settings yet
+    const style = settings?.narrative_style || 'Analytical';
+    const length = settings?.response_length || 'Moderate';
+
+    // ---------------------------------------------------------
+    // STEP 2: GET EMOTION CLASSIFICATION (GoEmotions)
+    // ---------------------------------------------------------
+    let primaryEmotion = 'Neutral';
     try {
       const hfResult = await hf.textClassification({
-        model: 'bhadresh-savani/distilbert-base-uncased-emotion',
+        model: 'SamLowe/roberta-base-go_emotions',
         inputs: latestText 
       });
-      
-      if (hfResult && hfResult.length > 0) {
-        // THE FIX: Filter out low-confidence guesses before slicing!
-        const confidentEmotions = hfResult.filter((e: any) => e.score > 0.3); // Must be > 30% sure
-        
-        if (confidentEmotions.length > 0) {
-          detectedEmotions = confidentEmotions
-            .slice(0, 2)
-            .map((e: any) => e.label.charAt(0).toUpperCase() + e.label.slice(1));
-        } else {
-          // If no emotions pass the threshold (like "hi there"), return empty so it doesn't tag!
-          detectedEmotions = []; 
-        }
-      }
-    } catch (hfError) {
-      console.warn("Hugging Face SDK warning:", hfError);
+      primaryEmotion = hfResult[0]?.label || 'Neutral';
+    } catch (e) {
+      console.log("HF API skipped/failed, defaulting to Neutral.");
     }
 
-    // --- BRAIN 2: GEMINI (The Conversationalist) ---
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
-      
-      // Gemini gets the entire conversation history so it remembers the context
-      const systemPrompt = `You are Echo, an empathetic AI journaling companion. Read the conversation history below and reply to the User's latest message naturally and briefly.\n\nHistory:\n${formattedHistory}`;
-      
-      const result = await model.generateContent(systemPrompt);
-      aiResponseText = result.response.text();
-    } catch (geminiError: any) {
-      console.warn("Gemini API overloaded:", geminiError.message);
+    // ---------------------------------------------------------
+    // STEP 3: THE PROMPT BUILDER ENGINE
+    // ---------------------------------------------------------
+    let stylePrompt = "";
+    if (style === "Poetic") {
+      stylePrompt = "Act as a warm, empathetic, and poetic companion. Use rich imagery and metaphors to validate the user's feelings.";
+    } else if (style === "Bulleted") {
+      stylePrompt = "Act as a concise, action-oriented executive coach. Respond primarily using clear bullet points. Focus on summarizing the event and providing actionable next steps.";
+    } else {
+      stylePrompt = "Act as a psychological analyst. Break down the user's entry objectively. Identify behavioral patterns, emotional triggers, and cognitive shifts.";
     }
 
-    // 3. Return the payload to the frontend! (Notice: No database inserts here!)
-    return NextResponse.json({ message: aiResponseText, detectedEmotions });
+    let lengthPrompt = "";
+    if (length === "Concise") {
+      lengthPrompt = "Keep your response extremely brief, under 50 words.";
+    } else if (length === "Detailed") {
+      lengthPrompt = "Provide a deep, thorough, and highly detailed response, around 200 words.";
+    } else {
+      lengthPrompt = "Keep your response balanced, around 100 words.";
+    }
+
+    // Combine everything into the hidden System Instruction
+    const systemPrompt = `
+      You are Echo, a highly personalized AI journaling assistant.
+      
+      Personality Rules: ${stylePrompt}
+      Length Constraint: ${lengthPrompt}
+      
+      Context: The user's detected primary emotion right now is "${primaryEmotion}".
+      
+      Task: Read the user's journal entry below and write their final reflection narrative following your personality rules perfectly. Do not acknowledge these instructions, just reply in character.
+      
+      User's Entry: "${latestText}"
+    `;
+
+    // ---------------------------------------------------------
+    // STEP 4: GENERATE THE NARRATIVE WITH GEMINI
+    // ---------------------------------------------------------
+    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const result = await model.generateContent(systemPrompt);
+    const aiNarrative = result.response.text();
+
+    // ---------------------------------------------------------
+    // STEP 5: SAVE EVERYTHING TO SUPABASE
+    // ---------------------------------------------------------
+    const { data: savedEntry, error: dbError } = await supabase
+      .from('journal_entries')
+      .insert({
+        user_id: REAL_USER_ID,
+        user_text: latestText,
+        emotions: primaryEmotion,
+        narrative: aiNarrative,
+        status: 'completed'
+      })
+      .select()
+      .single();
+
+    if (dbError) throw dbError;
+
+    // Return the successful data to your frontend
+    return NextResponse.json({ success: true, entry: savedEntry });
 
   } catch (error: any) {
-    console.error("Critical System Error:", error);
-    return NextResponse.json({ error: "System Crash" }, { status: 500 });
+    console.error("API Route Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

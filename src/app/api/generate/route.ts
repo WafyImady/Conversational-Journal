@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       .map((msg: any) => `${msg.role === "user" ? "User" : "Echo"}: ${msg.content}`)
       .join("\n");
 
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `
     You are an expert AI journaling assistant. 
