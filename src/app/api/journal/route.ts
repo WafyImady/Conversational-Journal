@@ -9,26 +9,16 @@ const hf = new HfInference(process.env.HUGGINGFACE_API_KEY || '');
 
 export async function POST(req: Request) {
   try {
-    // 1. Initialize the secure server client
     const supabase = await createClient();
-
-    // 2. Ask Supabase who is currently logged in based on the cookies
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    // 3. If no one is logged in, block the request immediately
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized. Please log in." }, { status: 401 });
     }
 
-    // 4. We now have our real, secure User ID!
     const REAL_USER_ID = user.id; 
-
     const body = await req.json();
     const latestText = body.text; 
-
-    // ... The rest of your code remains exactly the same! 
-    // Just remember to change PROTOTYPE_USER_ID to REAL_USER_ID
-    // in your STEP 1 (select settings) and STEP 5 (insert journal) queries.
 
     // ---------------------------------------------------------
     // STEP 1: FETCH USER PREFERENCES
@@ -39,7 +29,6 @@ export async function POST(req: Request) {
       .eq('user_id', REAL_USER_ID)
       .single();
 
-    // Set safe defaults just in case they haven't saved settings yet
     const style = settings?.narrative_style || 'Analytical';
     const length = settings?.response_length || 'Moderate';
 
@@ -78,7 +67,6 @@ export async function POST(req: Request) {
       lengthPrompt = "Keep your response balanced, around 100 words.";
     }
 
-    // Combine everything into the hidden System Instruction
     const systemPrompt = `
       You are Echo, a highly personalized AI journaling assistant.
       
@@ -100,24 +88,17 @@ export async function POST(req: Request) {
     const aiNarrative = result.response.text();
 
     // ---------------------------------------------------------
-    // STEP 5: SAVE EVERYTHING TO SUPABASE
+    // THE FIX: JUST RETURN THE DATA TO THE FRONTEND
     // ---------------------------------------------------------
-    const { data: savedEntry, error: dbError } = await supabase
-      .from('journal_entries')
-      .insert({
-        user_id: REAL_USER_ID,
-        user_text: latestText,
-        emotions: primaryEmotion,
+    // We send back an object that matches what page.tsx is looking for 
+    // (data.entry.narrative and data.entry.emotions) without saving to the DB here!
+    return NextResponse.json({ 
+      success: true, 
+      entry: {
         narrative: aiNarrative,
-        status: 'completed'
-      })
-      .select()
-      .single();
-
-    if (dbError) throw dbError;
-
-    // Return the successful data to your frontend
-    return NextResponse.json({ success: true, entry: savedEntry });
+        emotions: primaryEmotion
+      }
+    });
 
   } catch (error: any) {
     console.error("API Route Error:", error);

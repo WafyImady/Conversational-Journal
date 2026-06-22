@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import RightSidebar from "@/components/RightSidebar";
 import ChatInput from "@/components/ChatInput";
 import { createClient } from "@/utils/client";
+import { Loader2 } from "lucide-react"; // <-- Added this for the loading spinner!
 
 export default function Home() {
   const supabase = createClient();
@@ -14,30 +15,48 @@ export default function Home() {
 
   // --- 1. THE SESSION TRACKERS ---
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]); // Started empty for a fresh chat
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  // NEW: Track if we are checking the user's login status
+  const [isAuthChecking, setIsAuthChecking] = useState(true); 
 
-  // --- THE BOUNCER ---
+  // --- THE GREETING ENGINE ---
+  useEffect(() => {
+    const hour = new Date().getHours();
+    let greeting = "Good evening";
+    if (hour < 12) greeting = "Good morning";
+    else if (hour < 17) greeting = "Good afternoon";
+
+    setMessages([{
+      id: "echo-greeting",
+      role: "ai",
+      content: `${greeting}. Take a deep breath. How are you feeling right now?`,
+      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) 
+    }]);
+  }, []);
+
+  // --- THE SEAMLESS BOUNCER ---
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push("/login");
+      } else {
+        setIsAuthChecking(false); // Valid user! Stop loading and show the page.
       }
     };
     checkAuth();
-  }, [router]);
+  }, [router]); // Removed supabase to prevent hot-reload warnings
 
   // --- THE UPGRADED CHAT ENGINE ---
   const handleNewMessage = async (text: string) => {
-    // 1. Create the user's message object
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
       content: text,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
     };
 
-    // 2. Add it to the local UI immediately
     const currentTranscript = [...messages, userMessage];
     setMessages(currentTranscript);
 
@@ -47,11 +66,7 @@ export default function Home() {
 
       let currentId = activeEntryId;
 
-      // ==========================================
-      // DATABASE PHASE 1: SAVE THE USER'S MESSAGE
-      // ==========================================
       if (!currentId) {
-        // SCENARIO A: It's the very first message! Create the ONE row.
         const { data, error } = await supabase
           .from('journal_entries')
           .insert({
@@ -65,11 +80,10 @@ export default function Home() {
         if (error) throw error;
         
         if (data) {
-          currentId = data.id; // Store it locally
-          setActiveEntryId(data.id); // Lock it in state for the next message
+          currentId = data.id; 
+          setActiveEntryId(data.id); 
         }
       } else {
-        // SCENARIO B: We are already chatting! Just append to the array.
         const { error } = await supabase
           .from('journal_entries')
           .update({ chat_transcript: currentTranscript })
@@ -78,16 +92,12 @@ export default function Home() {
         if (error) throw error;
       }
 
-      // ==========================================
-      // AI PHASE: GET GEMINI'S RESPONSE
-      // ==========================================
       const response = await fetch("/api/journal", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`
         },
-        // FIX 1: Send the actual 'text' string so body.text works in your route.ts!
         body: JSON.stringify({ text: text, transcript: currentTranscript }), 
       });
 
@@ -97,33 +107,25 @@ export default function Home() {
       if (data.error) {
         finalMessage = `⚠️ System Error: ${data.error}`;
       } else if (data.entry && data.entry.narrative) {
-        // FIX 2: Look for 'narrative' inside the 'entry' object instead of 'message'
         finalMessage = data.entry.narrative;
       }
 
-      // FIX 3: Grab the emotion string from the database entry and wrap it in an array for the UI
       const detectedEmotionArray = data.entry && data.entry.emotions ? [data.entry.emotions] : [];
 
-      // Attach the detected emotions to the USER's message
       const updatedUserMessage = {
         ...userMessage,
         emotions: detectedEmotionArray
       };
 
-      // 2. Create the AI's message (Echo doesn't have emotions, so we leave them off!)
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "ai",
         content: finalMessage,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
       };
 
-      // ==========================================
-      // DATABASE PHASE 2: SAVE THE AI'S MESSAGE
-      // ==========================================
-      // 3. Rebuild the array: Previous history + Updated User Message + AI Reply
       const finalTranscript = [...messages, updatedUserMessage, aiMessage];
-      setMessages(finalTranscript); // Update UI
+      setMessages(finalTranscript);
 
       await supabase
         .from('journal_entries')
@@ -135,7 +137,6 @@ export default function Home() {
     }
   };
 
-  // --- THE TRANSITION ENGINE ---
   const handleEndSession = async () => {
     if (!activeEntryId) {
       alert("Please send at least one message before ending the reflection.");
@@ -143,19 +144,26 @@ export default function Home() {
     }
 
     try {
-      // 1. Update the database status so we know the chat is locked
       await supabase
         .from('journal_entries')
         .update({ status: 'analyzing' })
         .eq('id', activeEntryId);
 
-      // 2. Route the user to the analysis page, passing the specific ID!
       router.push(`/analytics?id=${activeEntryId}`);
       
     } catch (error) {
       console.error("Failed to transition to analysis:", error);
     }
   };
+
+  // NEW: The Loading Screen Intercept
+  if (isAuthChecking) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#8EACA0]" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-[#FAF9F6]">
@@ -170,14 +178,12 @@ export default function Home() {
             </p>
           </div>
           
-          {/* THE NEW BUTTON: Only shows up after they send their first message */}
           {activeEntryId && (
             <button 
               onClick={handleEndSession}
               className="bg-[#D28C81] hover:bg-[#C17A6F] text-white px-6 py-2.5 rounded-full text-sm font-semibold shadow-sm transition-all flex items-center gap-2"
             >
               End & Analyze
-              {/* Optional: Add a simple SVG arrow icon */}
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M12 5l7 7-7 7"/>
               </svg>
@@ -187,6 +193,26 @@ export default function Home() {
 
         <div className="flex-grow overflow-y-auto px-10 py-6 flex flex-col">
           <JournalFeed messages={messages} />
+          
+          {/* NEW: Quick Start Chips appear ONLY when the AI has spoken, but the user hasn't yet */}
+          {messages.length === 1 && (
+            <div className="mt-8 flex flex-wrap gap-3 max-w-2xl">
+              {[
+                "I'm feeling a bit anxious.",
+                "Today was actually really great.",
+                "I have a lot on my mind.",
+                "I just need to vent."
+              ].map((prompt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleNewMessage(prompt)}
+                  className="px-4 py-2 bg-white border border-gray-200 text-gray-500 rounded-full text-sm hover:border-[#8EACA0] hover:text-[#8EACA0] transition-colors"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="w-full bg-[#FAF9F6] px-10 pb-8 pt-4 flex-shrink-0 border-t border-[#E5E2DB]">

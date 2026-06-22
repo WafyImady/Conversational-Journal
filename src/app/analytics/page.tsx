@@ -126,7 +126,12 @@ function AnalysisContent() {
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
-        <Loader2 className="w-8 h-8 text-[#8EACA0] animate-spin" />
+        <div className="flex flex-col items-center gap-4 text-[#8EACA0]">
+          <Loader2 className="w-10 h-10 animate-spin" />
+          <p className="text-sm font-semibold tracking-wider uppercase">
+            Analyzing emotional trends...
+          </p>
+        </div>
       </div>
     );
   }

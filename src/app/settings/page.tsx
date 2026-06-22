@@ -11,7 +11,8 @@ export default function SettingsPage() {
   const router = useRouter(); // Initialize router
 
   // 2. Store the real user's ID once we fetch it
-  const [userId, setUserId] = useState<string | null>(null); 
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>(""); 
 
   // Interactive States
   const [isLoading, setIsLoading] = useState(true);
@@ -38,6 +39,9 @@ export default function SettingsPage() {
 
       // Step C: Save their real ID to state
       setUserId(user.id);
+      if (user.email) {
+        setUserEmail(user.email);
+      }
 
       // Step D: Fetch settings using their real ID
       const { data, error } = await supabase
@@ -95,8 +99,20 @@ export default function SettingsPage() {
     setActiveDays(prev => prev.includes(dayId) ? prev.filter(d => d !== dayId) : [...prev, dayId]);
   };
 
-  if (isLoading) return <div className="flex h-screen items-center justify-center bg-[#FAF9F6]"><Loader2 className="w-8 h-8 animate-spin text-[#5A7A62]" /></div>;
-
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
+        <div className="flex flex-col items-center gap-4 text-[#5A7A62]">
+          {/* Sized up to w-10 h-10 to perfectly match the other pages! */}
+          <Loader2 className="w-10 h-10 animate-spin" />
+          <p className="text-sm font-semibold tracking-wider uppercase">
+            Loading preferences...
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="flex min-h-screen bg-[#FAF9F6]">
       <Sidebar />
@@ -122,8 +138,11 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900">Alex Thompson</h2>
-                  <p className="text-sm text-gray-500 mb-2">alex.thompson@echojournal.com</p>
+                  <h2 className="text-xl font-bold text-gray-900 capitalize">
+                    {/* This takes "alex.t@email.com", splits it at "@", takes "alex.t", and replaces the "." with a space! */}
+                    {userEmail ? userEmail.split('@')[0].replace('.', ' ') : "Loading..."}
+                  </h2>
+                  <p className="text-sm text-gray-500 mb-2">{userEmail || "Loading..."}</p>
                   <span className="text-[10px] font-bold tracking-wider text-[#5A7A62] bg-[#EAF2ED] px-3 py-1 rounded-full uppercase">Premium Member</span>
                 </div>
               </div>

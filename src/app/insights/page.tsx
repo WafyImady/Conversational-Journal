@@ -2,8 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Sidebar from "@/components/Sidebar"; // Updated path!
-import { supabase } from "@/utils/supabaseClient";
+import Sidebar from "@/components/Sidebar"; 
+import { createClient } from "@/utils/client";
 import { BookOpen, CheckCircle2, Plus, RefreshCw, CheckCircle, Edit2, Loader2 } from "lucide-react";
 
 interface ActionItem {
@@ -14,6 +14,7 @@ interface ActionItem {
 }
 
 function InsightsContent() {
+  const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const entryId = searchParams.get("id");
@@ -24,13 +25,17 @@ function InsightsContent() {
   const [isGenerating, setIsGenerating] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
+  // --- NEW: STATES FOR ADDING CUSTOM ACTIONS ---
+  const [isAddingAction, setIsAddingAction] = useState(false);
+  const [newActionTitle, setNewActionTitle] = useState("");
+  const [newActionDesc, setNewActionDesc] = useState("");
+
   // --- THE AI GENERATION ENGINE ---
   const generateInsights = async () => {
     if (!entryId) return;
     setIsGenerating(true);
 
     try {
-      // 1. Fetch the raw data from Supabase
       const { data: entryData, error: dbError } = await supabase
         .from('journal_entries')
         .select('chat_transcript, emotions')
@@ -39,7 +44,6 @@ function InsightsContent() {
 
       if (dbError) throw dbError;
 
-      // 2. Ask Gemini to write the journal and extract action items
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -53,7 +57,6 @@ function InsightsContent() {
       
       if (aiData.error) throw new Error(aiData.error);
 
-      // 3. Populate the UI with the real data
       setNarrative(aiData.narrative);
       setActions(aiData.actions);
 
@@ -65,7 +68,6 @@ function InsightsContent() {
     }
   };
 
-  // Trigger generation on page load
   useEffect(() => {
     generateInsights();
   }, [entryId]);
@@ -76,25 +78,43 @@ function InsightsContent() {
     ));
   };
 
+  // --- NEW: HANDLER TO SAVE CUSTOM ACTION ---
+  const handleAddAction = () => {
+    if (!newActionTitle.trim()) return; // Prevent empty actions
+
+    const newCustomAction: ActionItem = {
+      id: Date.now(), // Generate a unique ID for the new item
+      title: newActionTitle.trim(),
+      desc: newActionDesc.trim(),
+      completed: false
+    };
+
+    // Add to our list
+    setActions([...actions, newCustomAction]);
+    
+    // Reset the form
+    setNewActionTitle("");
+    setNewActionDesc("");
+    setIsAddingAction(false);
+  };
+
   // --- THE FINAL SAVE ENGINE ---
   const handleFinalize = async () => {
     if (!entryId) return;
     setIsSaving(true);
 
     try {
-      // Update the database one last time and mark it as completed
       const { error } = await supabase
         .from('journal_entries')
         .update({ 
           narrative: narrative,
-          action_items: actions,
+          action_items: actions, // This now includes your custom actions!
           status: 'completed' 
         })
         .eq('id', entryId);
 
       if (error) throw error;
 
-      // Route the user back to their main dashboard
       router.push("/");
 
     } catch (error) {
@@ -197,10 +217,54 @@ function InsightsContent() {
             ))}
           </div>
 
-          <button className="w-full py-4 border-2 border-dashed border-[#F5E6E3] rounded-2xl text-[#D28C81] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#FCF4F2] transition-colors">
-            <Plus className="w-4 h-4" />
-            Add Custom Action
-          </button>
+          {/* --- NEW: INTERACTIVE ADD ACTION UI --- */}
+          {isAddingAction ? (
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-[#D28C81] flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-200">
+              <input
+                autoFocus
+                type="text"
+                placeholder="Action Title (e.g., Drink water)"
+                className="w-full font-bold text-sm text-gray-900 focus:outline-none placeholder-gray-400 bg-transparent"
+                value={newActionTitle}
+                onChange={(e) => setNewActionTitle(e.target.value)}
+              />
+              <textarea
+                placeholder="Brief description of how or when you'll do this..."
+                className="w-full text-xs text-gray-600 focus:outline-none resize-none placeholder-gray-400 bg-transparent custom-scrollbar"
+                rows={2}
+                value={newActionDesc}
+                onChange={(e) => setNewActionDesc(e.target.value)}
+              />
+              <div className="flex justify-end gap-2 mt-2">
+                <button 
+                  onClick={() => {
+                    setIsAddingAction(false);
+                    setNewActionTitle("");
+                    setNewActionDesc("");
+                  }}
+                  className="px-4 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleAddAction}
+                  disabled={!newActionTitle.trim()}
+                  className="px-4 py-1.5 text-xs font-semibold bg-[#D28C81] text-white rounded-lg hover:bg-[#C17A6F] disabled:bg-gray-300 transition-colors"
+                >
+                  Save Action
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setIsAddingAction(true)}
+              className="w-full py-4 border-2 border-dashed border-[#F5E6E3] rounded-2xl text-[#D28C81] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#FCF4F2] transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Custom Action
+            </button>
+          )}
+
         </div>
       </div>
 

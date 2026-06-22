@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType, Schema } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -16,8 +16,42 @@ export async function POST(req: Request) {
       .map((msg: any) => `${msg.role === "user" ? "User" : "Echo"}: ${msg.content}`)
       .join("\n");
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    // 1. DEFINE THE STRICT JSON SCHEMA
+    const responseSchema: Schema = {
+      type: SchemaType.OBJECT,
+      properties: {
+        narrative: {
+          type: SchemaType.STRING,
+          description: "A cohesive, reflective 3-paragraph journal entry written from the first-person perspective of the User.",
+        },
+        actions: {
+          type: SchemaType.ARRAY,
+          description: "3 practical, actionable steps the user can take based on the journal entry.",
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              id: { type: SchemaType.INTEGER },
+              title: { type: SchemaType.STRING },
+              desc: { type: SchemaType.STRING },
+              completed: { type: SchemaType.BOOLEAN },
+            },
+            required: ["id", "title", "desc", "completed"],
+          },
+        },
+      },
+      required: ["narrative", "actions"],
+    };
 
+    // 2. PASS THE SCHEMA INTO THE MODEL CONFIG
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+      }
+    });
+
+    // 3. THE PROMPT CAN NOW BE MUCH SIMPLER
     const prompt = `
     You are an expert AI journaling assistant. 
     Review the following chat transcript and the verified emotions for this session.
@@ -27,27 +61,13 @@ export async function POST(req: Request) {
     Chat Transcript:
     ${formattedHistory}
 
-    INSTRUCTIONS:
-    1. Synthesize the conversation into a cohesive, reflective 3-paragraph journal entry. It MUST be written from the first-person perspective of the User (e.g., "Today I felt...", "I realized that...").
-    2. Based on the conversation, extract 3 practical, actionable steps the user can take to improve their wellbeing or situation.
-
-    You MUST respond EXACTLY in this JSON format. Do not include markdown formatting like \`\`\`json.
-    {
-      "narrative": "Paragraph 1\\n\\nParagraph 2\\n\\nParagraph 3",
-      "actions": [
-        { "id": 1, "title": "Action Title", "desc": "Brief description of the action", "completed": false },
-        { "id": 2, "title": "Action Title", "desc": "Brief description of the action", "completed": false },
-        { "id": 3, "title": "Action Title", "desc": "Brief description of the action", "completed": false }
-      ]
-    }
+    Based on the conversation, synthesize a first-person reflective journal entry and extract 3 actionable steps for the user's wellbeing.
     `;
 
     const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
     
-    // Clean potential markdown tags from the response
-    const cleanedText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-    const jsonResult = JSON.parse(cleanedText);
+    // 4. NO MORE REGEX NEEDED! It is guaranteed to be clean JSON.
+    const jsonResult = JSON.parse(result.response.text());
 
     return NextResponse.json(jsonResult);
 
