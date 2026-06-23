@@ -1,23 +1,25 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js'; // Or however you import your Supabase client
+import { createClient } from '@supabase/supabase-js';
 
 export async function GET() {
-  // Initialize Supabase using your environment variables
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  // 1. Keep Supabase Awake
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+  await supabase.from('journal_entries').select('id').limit(1);
 
-  // Perform a tiny read to keep the database active
-  // IMPORTANT: Replace 'journal_entries' with the name of a real table in your database
-  const { data, error } = await supabase
-    .from('journal_entries') 
-    .select('id')
-    .limit(1);
-
-  if (error) {
-    return NextResponse.json({ status: "Vercel awake, but Supabase error", error }, { status: 500 });
+  // 2. Keep Hugging Face Awake
+  try {
+    // We manually constructed the URL using the exact model name from your code!
+    await fetch("https://api-inference.huggingface.co/models/SamLowe/roberta-base-go_emotions", {
+      method: "POST",
+      headers: { 
+        "Authorization": `Bearer ${process.env.HUGGING_FACE_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ inputs: "ping" }), 
+    });
+  } catch (error) {
+    console.log("Hugging face ping failed, but continuing...");
   }
 
-  return NextResponse.json({ status: "Echo and Supabase are fully awake!" });
+  return NextResponse.json({ status: "Echo, Supabase, AND Hugging Face are fully awake!" });
 }
