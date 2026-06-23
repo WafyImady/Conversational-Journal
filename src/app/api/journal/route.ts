@@ -97,7 +97,7 @@ export async function POST(req: Request) {
       success: true, 
       entry: {
         narrative: aiNarrative,
-        emotions: primaryEmotion
+        emotions: [primaryEmotion]
       }
     });
 
