@@ -82,11 +82,33 @@ export async function POST(req: Request) {
     `;
 
     // ---------------------------------------------------------
-    // STEP 4: GENERATE THE NARRATIVE WITH GEMINI
+    // STEP 4: GENERATE THE NARRATIVE WITH GEMINI (WITH FALLBACK)
     // ---------------------------------------------------------
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
-    const result = await model.generateContent(systemPrompt);
-    const aiNarrative = result.response.text();
+    let aiNarrative = "";
+
+    try {
+      // First attempt: Try the primary model
+      const primaryModel = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+      const result = await primaryModel.generateContent(systemPrompt);
+      aiNarrative = result.response.text();
+
+    } catch (primaryError: any) {
+      console.warn("Primary Gemini model failed (likely 503). Attempting fallback...", primaryError.message);
+      
+      try {
+        // Second attempt: Automatically fall back to the highly stable 2.5 model
+        const fallbackModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const fallbackResult = await fallbackModel.generateContent(systemPrompt);
+        aiNarrative = fallbackResult.response.text();
+
+      } catch (fallbackError: any) {
+        console.error("Both Gemini models failed:", fallbackError.message);
+        // Safely tell the frontend there is a traffic jam instead of crashing
+        return NextResponse.json({ 
+          error: "Echo is currently overwhelmed by high demand. Please take a deep breath and try sending that again in a moment." 
+        }, { status: 503 });
+      }
+    }
 
     // ---------------------------------------------------------
     // THE FIX: JUST RETURN THE DATA TO THE FRONTEND

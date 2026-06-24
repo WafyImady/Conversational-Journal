@@ -42,16 +42,7 @@ export async function POST(req: Request) {
       required: ["narrative", "actions"],
     };
 
-    // 2. PASS THE SCHEMA INTO THE MODEL CONFIG
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      }
-    });
-
-    // 3. THE PROMPT CAN NOW BE MUCH SIMPLER
+    // 2. THE PROMPT
     const prompt = `
     You are an expert AI journaling assistant. 
     Review the following chat transcript and the verified emotions for this session.
@@ -64,11 +55,46 @@ export async function POST(req: Request) {
     Based on the conversation, synthesize a first-person reflective journal entry and extract 3 actionable steps for the user's wellbeing.
     `;
 
-    const result = await model.generateContent(prompt);
-    
-    // 4. NO MORE REGEX NEEDED! It is guaranteed to be clean JSON.
-    const jsonResult = JSON.parse(result.response.text());
+    // 3. GENERATE WITH AUTOMATIC FALLBACK
+    let jsonResult;
 
+    try {
+      // First attempt: Try your primary model
+      const primaryModel = genAI.getGenerativeModel({ 
+        model: "gemini-3.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+        }
+      });
+      const result = await primaryModel.generateContent(prompt);
+      jsonResult = JSON.parse(result.response.text());
+
+    } catch (primaryError: any) {
+      console.warn("Primary generation failed. Attempting fallback...", primaryError.message);
+      
+      try {
+        // Second attempt: Fall back to a highly stable model
+        const fallbackModel = genAI.getGenerativeModel({ 
+          model: "gemini-2.5-flash", 
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema, // Important: pass the schema here too!
+          }
+        });
+        const fallbackResult = await fallbackModel.generateContent(prompt);
+        jsonResult = JSON.parse(fallbackResult.response.text());
+
+      } catch (fallbackError: any) {
+        console.error("Both models failed during journal generation:", fallbackError.message);
+        return NextResponse.json(
+          { error: "Echo is overwhelmed right now. Your data is safe, please try generating again in a moment." },
+          { status: 503 }
+        );
+      }
+    }
+
+    // 4. RETURN THE SAFE JSON
     return NextResponse.json(jsonResult);
 
   } catch (error) {
