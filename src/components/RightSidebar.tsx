@@ -51,81 +51,87 @@ export default function RightSidebar() {
 
   useEffect(() => {
     const fetchWeeklyData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      try {
+        setIsLoading(true); // 1. Start the spinner
 
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        // 2. If no user, safely exit. The finally block will kill the spinner.
+        if (authError || !user) return; 
 
-      const { data: entries } = await supabase
-        .from('journal_entries')
-        .select('chat_transcript')
-        .eq('user_id', user.id)
-        .gte('created_at', sevenDaysAgo.toISOString());
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      if (!entries || entries.length === 0) {
-        setIsLoading(false);
-        return; 
-      }
+        const { data: entries, error: dbError } = await supabase
+          .from('journal_entries')
+          .select('chat_transcript')
+          .eq('user_id', user.id)
+          .gte('created_at', sevenDaysAgo.toISOString());
 
-      const emotionCounts: Record<string, number> = {};
-      let totalEmotions = 0;
-      let allUserText = ""; // <-- Gather all text here!
+        // 3. Catch database errors immediately
+        if (dbError) throw dbError; 
 
-      entries.forEach(entry => {
-        if (Array.isArray(entry.chat_transcript)) {
-          entry.chat_transcript.forEach((msg: any) => {
-            if (msg.role === 'user') {
-              // 1. Tally Emotions
-              if (Array.isArray(msg.emotions)) {
-                msg.emotions.forEach((emotion: string) => {
-                  if (emotion && emotion.toLowerCase() !== 'neutral') {
-                    emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1;
-                    totalEmotions++;
-                  }
-                });
+        // 4. If no entries, safely exit. The finally block will kill the spinner.
+        if (!entries || entries.length === 0) return; 
+
+        const emotionCounts: Record<string, number> = {};
+        let totalEmotions = 0;
+        let allUserText = ""; 
+
+        entries.forEach(entry => {
+          if (Array.isArray(entry.chat_transcript)) {
+            entry.chat_transcript.forEach((msg: any) => {
+              if (msg.role === 'user') {
+                if (Array.isArray(msg.emotions)) {
+                  msg.emotions.forEach((emotion: string) => {
+                    if (emotion && emotion.toLowerCase() !== 'neutral') {
+                      emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1;
+                      totalEmotions++;
+                    }
+                  });
+                }
+                if (msg.content) {
+                  allUserText += " " + msg.content.toLowerCase();
+                }
               }
-              // 2. Gather text for NLP Keyword extraction
-              if (msg.content) {
-                allUserText += " " + msg.content.toLowerCase();
-              }
-            }
-          });
+            });
+          }
+        });
+
+        if (totalEmotions > 0) {
+          const sortedEmotions = Object.entries(emotionCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, count]) => ({
+              name,
+              percentage: Math.round((count / totalEmotions) * 100)
+            }));
+
+          if (sortedEmotions.length > 0) setPrimaryVibe({ ...sortedEmotions[0], style: getEmotionStyle(sortedEmotions[0].name) });
+          if (sortedEmotions.length > 1) setSecondaryVibe({ ...sortedEmotions[1], style: getEmotionStyle(sortedEmotions[1].name) });
         }
-      });
 
-      // --- EMOTION MATH ---
-      if (totalEmotions > 0) {
-        const sortedEmotions = Object.entries(emotionCounts)
+        const rawWords = allUserText.match(/\b[a-z]{4,}\b/g) || [];
+        const wordCounts: Record<string, number> = {};
+
+        rawWords.forEach(word => {
+          if (!STOP_WORDS.has(word)) {
+            wordCounts[word] = (wordCounts[word] || 0) + 1;
+          }
+        });
+
+        const extractedThemes = Object.entries(wordCounts)
           .sort((a, b) => b[1] - a[1])
-          .map(([name, count]) => ({
-            name,
-            percentage: Math.round((count / totalEmotions) * 100)
-          }));
+          .slice(0, 3)
+          .map(([word]) => `#${word.charAt(0).toUpperCase() + word.slice(1)}`); 
 
-        if (sortedEmotions.length > 0) setPrimaryVibe({ ...sortedEmotions[0], style: getEmotionStyle(sortedEmotions[0].name) });
-        if (sortedEmotions.length > 1) setSecondaryVibe({ ...sortedEmotions[1], style: getEmotionStyle(sortedEmotions[1].name) });
+        setThemes(extractedThemes);
+
+      } catch (error) {
+        console.error("Failed to load weekly trends:", error);
+      } finally {
+        // 5. THE KILL SWITCH: Runs no matter what, stopping the infinite spin!
+        setIsLoading(false);
       }
-
-      // --- NLP KEYWORD EXTRACTION MATH ---
-      // Extract only words that are 4 letters or longer
-      const rawWords = allUserText.match(/\b[a-z]{4,}\b/g) || [];
-      const wordCounts: Record<string, number> = {};
-
-      rawWords.forEach(word => {
-        if (!STOP_WORDS.has(word)) {
-          wordCounts[word] = (wordCounts[word] || 0) + 1;
-        }
-      });
-
-      // Grab the top 3 most used words and format them as #Tags
-      const extractedThemes = Object.entries(wordCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([word]) => `#${word.charAt(0).toUpperCase() + word.slice(1)}`); // Capitalizes the first letter
-
-      setThemes(extractedThemes);
-      setIsLoading(false);
     };
 
     fetchWeeklyData();
