@@ -83,9 +83,22 @@ export default function RightSidebar() {
             entry.chat_transcript.forEach((msg: any) => {
               if (msg.role === 'user') {
                 if (Array.isArray(msg.emotions)) {
-                  msg.emotions.forEach((emotion: string) => {
-                    if (emotion && emotion.toLowerCase() !== 'neutral') {
-                      emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1;
+                  msg.emotions.forEach((rawEmotion: any) => {
+                    // 1. Safely extract the string, no matter how messy the database is!
+                    let emotionStr = "";
+                    
+                    if (typeof rawEmotion === "string") {
+                      emotionStr = rawEmotion; // It's a clean string: "joy"
+                    } else if (Array.isArray(rawEmotion) && typeof rawEmotion[0] === "string") {
+                      emotionStr = rawEmotion[0]; // It's a nested array: ["joy"]
+                    } else if (rawEmotion && typeof rawEmotion.label === "string") {
+                      emotionStr = rawEmotion.label; // It's an old HuggingFace object: { label: "joy" }
+                    }
+
+                    // 2. Now that we guarantee it's a string, we can safely use toLowerCase()
+                    if (emotionStr && emotionStr.toLowerCase() !== 'neutral') {
+                      const cleanEmotion = emotionStr.toLowerCase();
+                      emotionCounts[cleanEmotion] = (emotionCounts[cleanEmotion] || 0) + 1;
                       totalEmotions++;
                     }
                   });

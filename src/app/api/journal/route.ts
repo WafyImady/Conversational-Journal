@@ -17,24 +17,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized. Please log in." }, { status: 401 });
     }
 
-    const REAL_USER_ID = user.id; 
     const body = await req.json();
     const latestText = body.text; 
 
     // ---------------------------------------------------------
-    // STEP 1: FETCH USER PREFERENCES
-    // ---------------------------------------------------------
-    const { data: settings } = await supabase
-      .from('user_settings')
-      .select('narrative_style, response_length')
-      .eq('user_id', REAL_USER_ID)
-      .single();
-
-    const style = settings?.narrative_style || 'Analytical';
-    const length = settings?.response_length || 'Moderate';
-
-    // ---------------------------------------------------------
-    // STEP 2: GET EMOTION CLASSIFICATION (GoEmotions)
+    // STEP 1: GET EMOTION CLASSIFICATION (GoEmotions)
     // ---------------------------------------------------------
     let primaryEmotion = 'Neutral';
     try {
@@ -48,41 +35,18 @@ export async function POST(req: Request) {
     }
 
     // ---------------------------------------------------------
-    // STEP 3: THE PROMPT BUILDER ENGINE
+    // STEP 2: THE CONVERSATIONAL PROMPT
     // ---------------------------------------------------------
-    let stylePrompt = "";
-    if (style === "Poetic") {
-      stylePrompt = "Act as a warm, empathetic, and poetic companion. Use rich imagery and metaphors to validate the user's feelings.";
-    } else if (style === "Bulleted") {
-      stylePrompt = "Act as a concise, action-oriented executive coach. Respond primarily using clear bullet points. Focus on summarizing the event and providing actionable next steps.";
-    } else {
-      stylePrompt = "Act as a psychological analyst. Break down the user's entry objectively. Identify behavioral patterns, emotional triggers, and cognitive shifts.";
-    }
-
-    let lengthPrompt = "";
-    if (length === "Concise") {
-      lengthPrompt = "Keep your response extremely brief, under 50 words.";
-    } else if (length === "Detailed") {
-      lengthPrompt = "Provide a deep, thorough, and highly detailed response, around 200 words.";
-    } else {
-      lengthPrompt = "Keep your response balanced, around 100 words.";
-    }
-
     const systemPrompt = `
-      You are Echo, a highly personalized AI journaling assistant.
-      
-      Personality Rules: ${stylePrompt}
-      Length Constraint: ${lengthPrompt}
-      
+      You are Echo, a warm and empathetic journaling companion.
       Context: The user's detected primary emotion right now is "${primaryEmotion}".
-      
-      Task: Read the user's journal entry below and write their final reflection narrative following your personality rules perfectly. Do not acknowledge these instructions, just reply in character.
-      
+      Task: Reply directly to the user's message below to keep them talking. Keep it natural, conversational, and relatively brief.
+  
       User's Entry: "${latestText}"
     `;
 
     // ---------------------------------------------------------
-    // STEP 4: GENERATE THE NARRATIVE WITH GEMINI (WITH FALLBACK)
+    // STEP 3: GENERATE THE CHAT RESPONSE (WITH FALLBACK)
     // ---------------------------------------------------------
     let aiNarrative = "";
 
@@ -111,10 +75,8 @@ export async function POST(req: Request) {
     }
 
     // ---------------------------------------------------------
-    // THE FIX: JUST RETURN THE DATA TO THE FRONTEND
+    // RETURN THE DATA TO THE FRONTEND
     // ---------------------------------------------------------
-    // We send back an object that matches what page.tsx is looking for 
-    // (data.entry.narrative and data.entry.emotions) without saving to the DB here!
     return NextResponse.json({ 
       success: true, 
       entry: {

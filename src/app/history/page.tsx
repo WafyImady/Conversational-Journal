@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
-// NEW: Imported the 'Check' icon for the action items!
 import { Search, Sparkles, TrendingUp, Calendar as CalendarIcon, Loader2, X, Check } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@/utils/client";
@@ -35,8 +34,9 @@ const getUIEmotionData = (hfMood: string) => {
 
 export default function ArchivePage() {
   const supabase = createClient();
-  const [timeFilter, setTimeFilter] = useState("Month");
   
+  // State Management
+  const [timeFilter, setTimeFilter] = useState("Month");
   const [activeMood, setActiveMood] = useState("All");
   const [searchQuery, setSearchQuery] = useState(""); 
   const [selectedDate, setSelectedDate] = useState(""); 
@@ -46,6 +46,108 @@ export default function ArchivePage() {
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [stats, setStats] = useState({ avgStress: 0, totalEntries: 0, topEmotion: "N/A" });
+
+  // Data Processor Helper
+  const processJournalData = (data: any[]) => {
+    const dailyScores: Record<string, { total: number, count: number }> = {};
+    const emotionCounts: Record<string, number> = {};
+    let globalScoreTotal = 0;
+    let validScoreCount = 0;
+
+    const formattedEntries = data.map((entry) => {
+      const dateObj = new Date(entry.created_at);
+      let emotion = 'Neutral';
+      
+      // Safely parse verified emotions
+      if (entry.emotions) {
+        let parsed = entry.emotions;
+
+        // 1. If it's a string, try to parse it as JSON
+        if (typeof parsed === 'string') {
+          try { parsed = JSON.parse(parsed); } catch (e) { /* keep as string */ }
+        }
+
+        // 2. Now extract the emotion
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Sort by intensity if possible, otherwise take the first
+          const sorted = [...parsed].sort((a, b) => (b.intensity || 0) - (a.intensity || 0));
+          const primary = sorted[0];
+          
+          // Check for all possible property names
+          emotion = primary.name || primary.label || primary.emotion || 'Neutral';
+        } else if (typeof parsed === 'string') {
+          emotion = parsed.split(',')[0].trim();
+        }
+      }
+
+      const emotionKey = emotion.toLowerCase(); 
+      emotionCounts[emotionKey] = (emotionCounts[emotionKey] || 0) + 1;
+      const score = emotionScores[emotionKey] !== undefined ? emotionScores[emotionKey] : 50; 
+      const dateKey = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); 
+      
+      if (!dailyScores[dateKey]) dailyScores[dateKey] = { total: 0, count: 0 };
+      dailyScores[dateKey].total += score;
+      dailyScores[dateKey].count += 1;
+      globalScoreTotal += score;
+      validScoreCount += 1;
+
+      const uiData = getUIEmotionData(emotionKey);
+
+      let formattedChat = "";
+      if (Array.isArray(entry.chat_transcript)) {
+        formattedChat = entry.chat_transcript
+          .filter((msg: any) => msg.content) 
+          .map((msg: any) => `${msg.role === 'user' ? 'You' : 'Echo'}:\n${msg.content}`)
+          .join('\n\n');
+      } else if (typeof entry.chat_transcript === 'string') {
+        formattedChat = entry.chat_transcript;
+      }
+
+      let parsedActions = entry.action_items || null;
+      if (typeof parsedActions === 'string') { 
+        try {
+          parsedActions = JSON.parse(parsedActions);
+        } catch (e) {
+          console.warn("Failed to parse actions:", e);
+        }
+      }
+
+      return {
+        id: entry.id,
+        rawDate: dateObj.toLocaleDateString('en-CA'), 
+        date: dateObj.toLocaleDateString('en-US', { day: '2-digit' }),
+        month: dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
+        time: dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        mood: uiData.label,
+        moodColor: uiData.color,
+        moodCategory: uiData.category, 
+        title: "Daily Reflection", 
+        userText: formattedChat,               
+        snippet: entry.narrative || "No summary available...",
+        actions: parsedActions                 
+      };
+    });
+
+    const finalChartData = Object.keys(dailyScores).map(date => ({
+      date,
+      value: Math.round(dailyScores[date].total / dailyScores[date].count)
+    }));
+
+    const topEmotionStr = Object.keys(emotionCounts).length > 0 
+      ? Object.keys(emotionCounts).reduce((a, b) => emotionCounts[a] > emotionCounts[b] ? a : b) 
+      : "N/A";
+      
+    const avgWellBeing = validScoreCount > 0 ? (globalScoreTotal / validScoreCount) : 50;
+    const stressLevel = ((100 - avgWellBeing) / 10).toFixed(1); 
+
+    setChartData(finalChartData);
+    setStats({ 
+      avgStress: parseFloat(stressLevel), 
+      totalEntries: data.length, 
+      topEmotion: topEmotionStr.charAt(0).toUpperCase() + topEmotionStr.slice(1) 
+    });
+    setJournalEntries(formattedEntries.reverse());
+  };
 
   useEffect(() => {
     async function fetchData() {
@@ -58,13 +160,9 @@ export default function ArchivePage() {
       }
       
       const startDate = new Date();
-      if (timeFilter === "Week") {
-        startDate.setDate(startDate.getDate() - 7);
-      } else if (timeFilter === "Month") {
-        startDate.setMonth(startDate.getMonth() - 1);
-      } else if (timeFilter === "Semester") {
-        startDate.setMonth(startDate.getMonth() - 6); 
-      }
+      if (timeFilter === "Week") startDate.setDate(startDate.getDate() - 7);
+      else if (timeFilter === "Month") startDate.setMonth(startDate.getMonth() - 1);
+      else if (timeFilter === "Semester") startDate.setMonth(startDate.getMonth() - 6); 
 
       let query = supabase
         .from('journal_entries')
@@ -73,111 +171,21 @@ export default function ArchivePage() {
         .order('created_at', { ascending: true });
 
       if (selectedDate) {
-        // If the user picked a specific date, check if it's older than our current filter
         const pickedDate = new Date(selectedDate);
-        if (pickedDate < startDate) {
-          // If it's an old memory, expand the database search to include it!
-          query = query.gte('created_at', pickedDate.toISOString());
-        } else {
-          query = query.gte('created_at', startDate.toISOString());
-        }
+        query = query.gte('created_at', pickedDate < startDate ? pickedDate.toISOString() : startDate.toISOString());
       } else {
-        // Normal behavior (just fetch the week/month/semester)
         query = query.gte('created_at', startDate.toISOString());
       }
 
       const { data, error } = await query;
 
-      if (error || !data || data.length === 0) {
-        setIsLoading(false);
-        return;
+      if (!error && data && data.length > 0) {
+        processJournalData(data);
+      } else {
+        setChartData([]);
+        setJournalEntries([]);
       }
-
-      const dailyScores: Record<string, { total: number, count: number }> = {};
-      const emotionCounts: Record<string, number> = {};
-      let globalScoreTotal = 0;
-      let validScoreCount = 0;
-
-      const formattedEntries = data.map((entry) => {
-        const dateObj = new Date(entry.created_at);
-        let emotion = 'Neutral';
-        
-        if (entry.emotions) {
-          let raw = entry.emotions;
-          if (typeof raw === 'string') {
-             emotion = raw.split(',')[0].trim();
-          } else if (Array.isArray(raw) && raw.length > 0) {
-             emotion = typeof raw[0] === 'string' ? raw[0] : (raw[0].label || 'Neutral');
-          }
-        }
-
-        const emotionKey = emotion.toLowerCase(); 
-        emotionCounts[emotionKey] = (emotionCounts[emotionKey] || 0) + 1;
-        const score = emotionScores[emotionKey] !== undefined ? emotionScores[emotionKey] : 50; 
-        const dateKey = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); 
-        
-        if (!dailyScores[dateKey]) dailyScores[dateKey] = { total: 0, count: 0 };
-        dailyScores[dateKey].total += score;
-        dailyScores[dateKey].count += 1;
-        globalScoreTotal += score;
-        validScoreCount += 1;
-
-        const uiData = getUIEmotionData(emotionKey);
-
-        let formattedChat = "";
-        if (entry.chat_transcript) {
-          if (Array.isArray(entry.chat_transcript)) {
-            formattedChat = entry.chat_transcript
-              .filter((msg: any) => msg.content) 
-              .map((msg: any) => `${msg.role === 'user' ? 'You' : 'Echo'}:\n${msg.content}`)
-              .join('\n\n');
-          } else {
-            formattedChat = typeof entry.chat_transcript === 'string' ? entry.chat_transcript : JSON.stringify(entry.chat_transcript);
-          }
-        }
-
-        let parsedActions = null;
-        if (entry.action_items) { 
-          try {
-            parsedActions = typeof entry.action_items === 'string' 
-              ? JSON.parse(entry.action_items) 
-              : entry.action_items;
-          } catch (e) {
-            parsedActions = entry.action_items;
-          }
-        }
-
-        return {
-          id: entry.id,
-          rawDate: dateObj.toLocaleDateString('en-CA'), 
-          date: dateObj.toLocaleDateString('en-US', { day: '2-digit' }),
-          month: dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
-          time: dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-          mood: uiData.label,
-          moodColor: uiData.color,
-          moodCategory: uiData.category, 
-          title: "Daily Reflection", 
-          userText: formattedChat,               
-          snippet: entry.narrative || "No summary available...",
-          actions: parsedActions                 
-        };
-      });
-
-      const finalChartData = Object.keys(dailyScores).map(date => ({
-        date,
-        value: Math.round(dailyScores[date].total / dailyScores[date].count)
-      }));
-
-      const topEmotionStr = Object.keys(emotionCounts).length > 0 
-        ? Object.keys(emotionCounts).reduce((a, b) => emotionCounts[a] > emotionCounts[b] ? a : b) 
-        : "N/A";
-        
-      const avgWellBeing = validScoreCount > 0 ? (globalScoreTotal / validScoreCount) : 50;
-      const stressLevel = ((100 - avgWellBeing) / 10).toFixed(1); 
-
-      setChartData(finalChartData);
-      setStats({ avgStress: parseFloat(stressLevel), totalEntries: data.length, topEmotion: topEmotionStr.charAt(0).toUpperCase() + topEmotionStr.slice(1) });
-      setJournalEntries(formattedEntries.reverse());
+      
       setIsLoading(false);
     }
 
@@ -185,35 +193,27 @@ export default function ArchivePage() {
   }, [supabase, timeFilter, selectedDate]);
 
 
-  // --- NEW: THE CHECKBOX TOGGLE ENGINE ---
-  // This function flips the checkmark in the UI and saves it to the database
   const toggleActionCompletion = async (entryId: string, actionIndex: number) => {
     if (!selectedEntry || selectedEntry.id !== entryId) return;
 
-    // 1. Flip the specific item's 'completed' status in our local state
     const updatedActions = selectedEntry.actions.map((action: any, idx: number) =>
       idx === actionIndex ? { ...action, completed: !action.completed } : action
     );
 
-    // 2. Instantly update the modal UI so it feels lightning fast
     setSelectedEntry({ ...selectedEntry, actions: updatedActions });
 
-    // 3. Update the main list in the background so it remembers if we close and reopen the modal
     setJournalEntries((prevEntries) =>
       prevEntries.map((entry) =>
         entry.id === entryId ? { ...entry, actions: updatedActions } : entry
       )
     );
 
-    // 4. Send the updated array back to Supabase to save it permanently
     const { error } = await supabase
       .from('journal_entries')
       .update({ action_items: updatedActions })
       .eq('id', entryId);
 
-    if (error) {
-      console.error("Failed to save action item to database:", error);
-    }
+    if (error) console.error("Failed to save action item to database:", error);
   };
 
 
@@ -255,7 +255,7 @@ export default function ArchivePage() {
                 placeholder="Search your memories..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-[#8EACA0] transition-all text-sm font-medium"
+                className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-[#8EACA0] transition-all text-sm font-medium shadow-sm"
               />
             </div>
             
@@ -323,7 +323,7 @@ export default function ArchivePage() {
                       <span className="text-3xl font-extrabold text-gray-900">{stats.avgStress}</span><span className="text-xs font-bold text-gray-500 mb-1">/ 10</span>
                     </div>
                     <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#E5E0D8] rounded-full" style={{ width: `${(stats.avgStress / 10) * 100}%` }}></div>
+                      <div className="h-full bg-[#E5E0D8] rounded-full transition-all duration-1000" style={{ width: `${(stats.avgStress / 10) * 100}%` }}></div>
                     </div>
                   </div>
                   <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
@@ -371,9 +371,7 @@ export default function ArchivePage() {
                         onChange={(e) => setSelectedDate(e.target.value)}
                         onClick={(e) => {
                           try {
-                            if ('showPicker' in HTMLInputElement.prototype) {
-                              e.currentTarget.showPicker();
-                            }
+                            if ('showPicker' in HTMLInputElement.prototype) e.currentTarget.showPicker();
                           } catch (err) {
                             console.log("Browser doesn't support showPicker");
                           }
@@ -447,7 +445,7 @@ export default function ArchivePage() {
 
       {/* THE FULL READING MODAL OVERLAY */}
       {selectedEntry && (
-        <div className="fixed inset-0 bg-gray-900/40 z-50 flex items-center justify-center p-4 sm:p-6 backdrop-blur-sm transition-opacity">
+        <div className="fixed inset-0 bg-gray-900/40 z-50 flex items-center justify-center p-4 sm:p-6 backdrop-blur-sm transition-all duration-300">
           <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl relative animate-in zoom-in-95 duration-200">
             
             <div className="p-6 border-b border-gray-100 flex justify-between items-center shrink-0 bg-white rounded-t-3xl">
@@ -468,7 +466,7 @@ export default function ArchivePage() {
               </div>
               <button 
                 onClick={() => setSelectedEntry(null)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-900"
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-900 outline-none"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -494,7 +492,6 @@ export default function ArchivePage() {
                 </div>
               </div>
 
-              {/* --- UPDATED: INTERACTIVE ACTION ITEMS --- */}
               {selectedEntry.actions && (
                 <div>
                   <h4 className="text-xs font-bold text-[#D9A083] uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -508,7 +505,6 @@ export default function ArchivePage() {
                           if (typeof action === 'object' && action.title && action.desc) {
                             return (
                               <li key={action.id || index} className="flex items-start gap-3">
-                                {/* THE BUTTON: Clickable Checkbox */}
                                 <button 
                                   onClick={() => toggleActionCompletion(selectedEntry.id, index)}
                                   className="mt-0.5 shrink-0 outline-none group focus:outline-none"
@@ -518,7 +514,6 @@ export default function ArchivePage() {
                                       ? 'bg-[#D28C81] border-[#D28C81]' 
                                       : 'bg-white border-gray-300 group-hover:border-[#D28C81]'
                                   }`}>
-                                    {/* USING THE NEW CHECK ICON */}
                                     {action.completed && <Check className="w-3 h-3 text-white" />} 
                                   </div>
                                 </button>

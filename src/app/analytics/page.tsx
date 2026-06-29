@@ -95,24 +95,31 @@ function AnalysisContent() {
     setIsSaving(true);
 
     try {
+      // 1. Format the slider emotions into objects
       const validSliderEmotions = emotions
         .filter(e => e.intensity > 20)
-        .map(e => e.name);
-      
-      const finalEmotionString = [...validSliderEmotions, ...addedEmotions].join(", ");
+        .map(e => ({ name: e.name, intensity: e.intensity })); 
 
-      // We now UPDATE the exact ID from the URL. No more guessing!
+      // 2. Format the manually added emotions into objects
+      const formattedAddedEmotions = addedEmotions.map(name => ({ 
+        name: name, 
+        intensity: 50 
+      }));
+      
+      // 3. Combine them into one clean array (NO .join string conversions!)
+      const finalEmotionData = [...validSliderEmotions, ...formattedAddedEmotions];
+
+      // 4. Send the raw array to Supabase
       const { error } = await supabase
         .from('journal_entries')
         .update({ 
-          emotions: finalEmotionString,
-          status: 'reviewing' // Move it to the next phase!
+          emotions: finalEmotionData, // Pass the array directly!
+          status: 'reviewing' 
         })
         .eq('id', entryId);
 
       if (error) throw error;
 
-      // Send them to the final Narrative/Insights page (passing the ID again)
       router.push(`/insights?id=${entryId}`);
 
     } catch (error) {

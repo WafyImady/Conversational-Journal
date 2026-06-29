@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType, Schema } from "@google/generative-ai";
+import { createClient } from '@/utils/server'; // Make sure this import is here!
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function POST(req: Request) {
   try {
+    // 1. AUTH & DB SETUP
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
     const body = await req.json();
     const { transcript, emotions } = body;
 
@@ -16,17 +25,45 @@ export async function POST(req: Request) {
       .map((msg: any) => `${msg.role === "user" ? "User" : "Echo"}: ${msg.content}`)
       .join("\n");
 
-    // 1. DEFINE THE STRICT JSON SCHEMA
+    // 2. FETCH USER PREFERENCES FOR THE FINAL JOURNAL
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('narrative_style, response_length')
+      .eq('user_id', user.id)
+      .single();
+
+    const style = settings?.narrative_style || 'Analytical';
+    const length = settings?.response_length || 'Moderate';
+
+    let stylePrompt = "";
+    if (style === "Poetic") {
+      stylePrompt = "Write the narrative using rich imagery, metaphors, and a poetic, reflective tone.";
+    } else if (style === "Bulleted") {
+      stylePrompt = "Write the narrative concisely. Use clear bullet points to summarize the main thoughts.";
+    } else {
+      stylePrompt = "Write the narrative objectively, breaking down behavioral patterns and cognitive shifts.";
+    }
+
+    let lengthPrompt = "";
+    if (length === "Concise") {
+      lengthPrompt = "Keep the narrative extremely brief, around 50 words max.";
+    } else if (length === "Detailed") {
+      lengthPrompt = "Provide a deep, thorough, and highly detailed narrative, around 200 words.";
+    } else {
+      lengthPrompt = "Keep the narrative balanced, around 100 words.";
+    }
+
+    // 3. DEFINE THE STRICT JSON SCHEMA
     const responseSchema: Schema = {
       type: SchemaType.OBJECT,
       properties: {
         narrative: {
           type: SchemaType.STRING,
-          description: "A cohesive, reflective 3-paragraph journal entry written from the first-person perspective of the User.",
+          description: "A cohesive journal entry written from the first-person perspective of the User.",
         },
         actions: {
           type: SchemaType.ARRAY,
-          description: "3 practical, actionable steps the user can take based on the journal entry.",
+          description: "3 practical, actionable steps the user can take.",
           items: {
             type: SchemaType.OBJECT,
             properties: {
@@ -42,26 +79,28 @@ export async function POST(req: Request) {
       required: ["narrative", "actions"],
     };
 
-    // 2. THE PROMPT
+    // 4. THE UPGRADED PROMPT
     const prompt = `
     You are an expert AI journaling assistant. 
     Review the following chat transcript and the verified emotions for this session.
 
     Verified Emotions: ${emotions || "None specified"}
     
+    Personality Rules for Narrative: ${stylePrompt}
+    Length Constraint for Narrative: ${lengthPrompt}
+
     Chat Transcript:
     ${formattedHistory}
 
-    Based on the conversation, synthesize a first-person reflective journal entry and extract 3 actionable steps for the user's wellbeing.
+    Based on the conversation, synthesize a first-person reflective journal entry following the Personality and Length rules perfectly. Then, extract 3 actionable steps.
     `;
 
-    // 3. GENERATE WITH AUTOMATIC FALLBACK
+    // 5. GENERATE WITH AUTOMATIC FALLBACK
     let jsonResult;
 
     try {
-      // First attempt: Try your primary model
       const primaryModel = genAI.getGenerativeModel({ 
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: responseSchema,
@@ -71,30 +110,27 @@ export async function POST(req: Request) {
       jsonResult = JSON.parse(result.response.text());
 
     } catch (primaryError: any) {
-      console.warn("Primary generation failed. Attempting fallback...", primaryError.message);
+      console.warn("Primary generation failed. Attempting fallback...");
       
       try {
-        // Second attempt: Fall back to a highly stable model
         const fallbackModel = genAI.getGenerativeModel({ 
-          model: "gemini-2.5-flash", 
+          model: "gemini-1.5-flash", 
           generationConfig: {
             responseMimeType: "application/json",
-            responseSchema: responseSchema, // Important: pass the schema here too!
+            responseSchema: responseSchema,
           }
         });
         const fallbackResult = await fallbackModel.generateContent(prompt);
         jsonResult = JSON.parse(fallbackResult.response.text());
 
       } catch (fallbackError: any) {
-        console.error("Both models failed during journal generation:", fallbackError.message);
         return NextResponse.json(
-          { error: "Echo is overwhelmed right now. Your data is safe, please try generating again in a moment." },
+          { error: "Echo is overwhelmed right now. Please try generating again in a moment." },
           { status: 503 }
         );
       }
     }
 
-    // 4. RETURN THE SAFE JSON
     return NextResponse.json(jsonResult);
 
   } catch (error) {
