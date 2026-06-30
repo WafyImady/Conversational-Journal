@@ -109,7 +109,8 @@ function InsightsContent() {
         .update({ 
           narrative: narrative,
           action_items: actions, // This now includes your custom actions!
-          status: 'completed' 
+          status: 'completed',
+          completed_at: new Date().toISOString() 
         })
         .eq('id', entryId);
 

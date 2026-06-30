@@ -19,12 +19,14 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const latestText = body.text; 
+    const transcript = body.transcript || []; // <-- NEW: Grabs the conversation history
 
     // ---------------------------------------------------------
     // STEP 1: GET EMOTION CLASSIFICATION (GoEmotions)
     // ---------------------------------------------------------
     let primaryEmotion = 'Neutral';
     try {
+      // We only test the latest text so the emotion is accurate to the current moment
       const hfResult = await hf.textClassification({
         model: 'SamLowe/roberta-base-go_emotions',
         inputs: latestText 
@@ -37,12 +39,21 @@ export async function POST(req: Request) {
     // ---------------------------------------------------------
     // STEP 2: THE CONVERSATIONAL PROMPT
     // ---------------------------------------------------------
+    // <-- NEW: Format the transcript into a readable chat log for Gemini
+    const historyContext = transcript
+      .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Echo'}: ${msg.content}`)
+      .join('\n');
+
     const systemPrompt = `
       You are Echo, a warm and empathetic journaling companion.
       Context: The user's detected primary emotion right now is "${primaryEmotion}".
-      Task: Reply directly to the user's message below to keep them talking. Keep it natural, conversational, and relatively brief.
+      
+      Here is the conversation history so far:
+      ${historyContext}
+
+      Task: Based on the conversation history above, reply directly to the user's latest message below. Keep it natural, conversational, and relatively brief. Do not repeat questions you have already asked.
   
-      User's Entry: "${latestText}"
+      User's Latest Entry: "${latestText}"
     `;
 
     // ---------------------------------------------------------
