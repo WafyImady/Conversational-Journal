@@ -2,19 +2,18 @@
 
 import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
-import { createClient } from "@/utils/client"; // Your current working import!
-import { useRouter } from "next/navigation"; // 1. Added router import
-import { BookOpen, Clock, SlidersHorizontal, User, CheckCircle2, Circle, Bell, Mail, Save, Loader2 } from "lucide-react";
+import { createClient } from "@/utils/client"; 
+import { useRouter } from "next/navigation"; 
+import { BookOpen, Clock, SlidersHorizontal, User, CheckCircle2, Circle, Bell, Mail, Save, Loader2, LogOut } from "lucide-react"; // Added LogOut!
 
 export default function SettingsPage() {
   const supabase = createClient();
-  const router = useRouter(); // Initialize router
+  const router = useRouter(); 
 
-  // 2. Store the real user's ID once we fetch it
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>(""); 
+  const [displayName, setDisplayName] = useState("");
 
-  // Interactive States
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -24,26 +23,21 @@ export default function SettingsPage() {
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [responseLength, setResponseLength] = useState("Moderate");
 
-  // 3. FETCH REAL USER & SAVED SETTINGS ON LOAD
   useEffect(() => {
     async function loadUserAndSettings() {
-      // Step A: Get the currently logged-in user securely
       const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-      // Step B: If no user is logged in, redirect to login page
       if (authError || !user) {
         console.error("Not logged in!");
         router.push("/login"); 
         return;
       }
 
-      // Step C: Save their real ID to state
       setUserId(user.id);
       if (user.email) {
         setUserEmail(user.email);
       }
 
-      // Step D: Fetch settings using their real ID
       const { data, error } = await supabase
         .from('user_settings')
         .select('*')
@@ -51,6 +45,7 @@ export default function SettingsPage() {
         .single();
 
       if (data) {
+        setDisplayName(data.display_name || ""); 
         setNarrativeStyle(data.narrative_style);
         setResponseLength(data.response_length);
         setPushEnabled(data.push_enabled);
@@ -59,26 +54,35 @@ export default function SettingsPage() {
       setIsLoading(false);
     }
 
-    // Call the async function inside the effect
     loadUserAndSettings();
-  }, [router, supabase]); // Dependencies
+  }, [router, supabase]); 
 
-  // 4. PUSH CHANGES TO DATABASE
+  // NEW: Secure Logout Function
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (!error) {
+      router.push("/login"); // Redirect to your login page
+    } else {
+      console.error("Error logging out:", error.message);
+    }
+  };
+
   const handleSave = async () => {
-    if (!userId) return; // Safety check: don't save if we don't have an ID!
+    if (!userId) return; 
 
     setIsSaving(true);
     
     const { error } = await supabase
       .from('user_settings')
       .upsert({ 
-        user_id: userId, // <-- Using the real ID state here!
+        user_id: userId, 
+        display_name: displayName, 
         narrative_style: narrativeStyle,
         response_length: responseLength,
         push_enabled: pushEnabled,
         email_enabled: emailEnabled,
         updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id' }); // Upsert means "Update if exists, Create if new"
+      }, { onConflict: 'user_id' }); 
 
     setIsSaving(false);
     
@@ -103,7 +107,6 @@ export default function SettingsPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
         <div className="flex flex-col items-center gap-4 text-[#5A7A62]">
-          {/* Sized up to w-10 h-10 to perfectly match the other pages! */}
           <Loader2 className="w-10 h-10 animate-spin" />
           <p className="text-sm font-semibold tracking-wider uppercase">
             Loading preferences...
@@ -128,24 +131,47 @@ export default function SettingsPage() {
 
           <div className="space-y-6 pb-20">
             
-            {/* PROFILE CARD */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-5 w-full md:w-auto">
-                <div className="w-20 h-20 rounded-2xl bg-[#F0D8C3] flex items-center justify-center relative shrink-0">
-                  <User className="w-10 h-10 text-white opacity-80" />
-                  <div className="absolute -bottom-2 -right-2 bg-white p-1 rounded-full border border-gray-100">
+            {/* EDITABLE PROFILE CARD WITH LOGOUT */}
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              
+              <div className="flex items-center gap-5 w-full">
+                {/* Dynamic Avatar using Display Name */}
+                <div className="w-20 h-20 rounded-2xl bg-[#5A7A62] flex items-center justify-center relative shrink-0 shadow-inner">
+                  <span className="text-white text-3xl font-bold uppercase tracking-wider">
+                    {displayName ? displayName.charAt(0) : (userEmail ? userEmail.charAt(0) : "U")}
+                  </span>
+                  <div className="absolute -bottom-2 -right-2 bg-white p-1 rounded-full border border-gray-100 shadow-sm">
                     <div className="bg-gray-100 p-1.5 rounded-full"><BookOpen className="w-3 h-3 text-gray-500" /></div>
                   </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 capitalize">
-                    {/* This takes "alex.t@email.com", splits it at "@", takes "alex.t", and replaces the "." with a space! */}
-                    {userEmail ? userEmail.split('@')[0].replace('.', ' ') : "Loading..."}
-                  </h2>
-                  <p className="text-sm text-gray-500 mb-2">{userEmail || "Loading..."}</p>
-                  <span className="text-[10px] font-bold tracking-wider text-[#5A7A62] bg-[#EAF2ED] px-3 py-1 rounded-full uppercase">Premium Member</span>
+
+                {/* Editable Name Input */}
+                <div className="flex-grow max-w-sm space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">
+                    What should Echo call you?
+                  </label>
+                  <input 
+                    type="text" 
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder={userEmail ? userEmail.split('@')[0] : "Your Name"}
+                    className="w-full text-xl font-bold text-gray-900 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 focus:outline-none focus:border-[#5A7A62] focus:ring-1 focus:ring-[#5A7A62] transition-all placeholder:text-gray-300"
+                  />
+                  <p className="text-xs text-gray-500 ml-1 mt-1">{userEmail || "Loading..."}</p>
                 </div>
               </div>
+              
+              {/* LOG OUT BUTTON ONLY */}
+              <div className="shrink-0 mt-4 md:mt-0 w-full md:w-auto">
+                <button 
+                  onClick={handleLogout}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-[#D9534F] bg-[#FCE8E8] hover:bg-[#F9D6D5] rounded-xl transition-colors w-full md:w-auto shadow-sm"
+                >
+                  <LogOut className="w-4 h-4" strokeWidth={2.5} />
+                  Log Out
+                </button>
+              </div>
+              
             </div>
 
             {/* NARRATIVE STYLE CARD */}
@@ -154,7 +180,7 @@ export default function SettingsPage() {
                 <div className="bg-[#EAF2ED] p-2.5 rounded-xl"><BookOpen className="w-5 h-5 text-[#5A7A62]" /></div>
                 <div>
                   <h3 className="text-lg font-bold text-gray-900">Narrative Style</h3>
-                  <p className="text-sm text-gray-500">Choose the voice your journal uses to speak back to you.</p>
+                  <p className="text-sm text-gray-500">Choose how Echo crafts and weaves your thoughts into a final entry.</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -178,8 +204,35 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* DAILY REMINDER CARD */}
+            {/* RESPONSE LENGTH CARD */}
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="bg-[#EAF2ED] p-2.5 rounded-xl"><SlidersHorizontal className="w-5 h-5 text-[#5A7A62]" /></div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Response Length</h3>
+                    <p className="text-sm text-gray-500">How much detail should Echo include in your daily summary?</p>
+                  </div>
+                </div>
+                <span className="bg-[#EAF2ED] text-[#5A7A62] text-xs font-bold px-4 py-1.5 rounded-full">{responseLength}</span>
+              </div>
+              <div className="relative pt-6 pb-2 px-4">
+                <div className="absolute top-8 left-4 right-4 h-2 bg-[#FAF9F6] rounded-full border border-gray-100 overflow-hidden">
+                  <div className="h-full bg-[#E5DFD3] transition-all duration-300" style={{ width: responseLength === 'Concise' ? '0%' : responseLength === 'Moderate' ? '50%' : '100%' }} />
+                </div>
+                <div className="flex justify-between relative z-10">
+                  {["Concise", "Moderate", "Detailed"].map((length) => (
+                    <button key={length} onClick={() => setResponseLength(length)} className="flex flex-col items-center gap-3 group">
+                      <div className={`w-5 h-5 rounded-full border-4 transition-colors ${responseLength === length ? "bg-white border-[#5A7A62] shadow-sm scale-110" : "bg-white border-[#E5DFD3] group-hover:border-gray-300"}`} />
+                      <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${responseLength === length ? "text-[#5A7A62]" : "text-gray-400"}`}>{length}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* DAILY REMINDER CARD */}
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm mb-10">
               <div className="flex items-center gap-3 mb-6">
                 <div className="bg-[#EAF2ED] p-2.5 rounded-xl"><Clock className="w-5 h-5 text-[#5A7A62]" /></div>
                 <div>
@@ -222,33 +275,6 @@ export default function SettingsPage() {
                       </button>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* RESPONSE LENGTH CARD */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm mb-10">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="bg-[#EAF2ED] p-2.5 rounded-xl"><SlidersHorizontal className="w-5 h-5 text-[#5A7A62]" /></div>
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">Response Length</h3>
-                    <p className="text-sm text-gray-500">How talkative should the AI be?</p>
-                  </div>
-                </div>
-                <span className="bg-[#EAF2ED] text-[#5A7A62] text-xs font-bold px-4 py-1.5 rounded-full">{responseLength}</span>
-              </div>
-              <div className="relative pt-6 pb-2 px-4">
-                <div className="absolute top-8 left-4 right-4 h-2 bg-[#FAF9F6] rounded-full border border-gray-100 overflow-hidden">
-                  <div className="h-full bg-[#E5DFD3] transition-all duration-300" style={{ width: responseLength === 'Concise' ? '0%' : responseLength === 'Moderate' ? '50%' : '100%' }} />
-                </div>
-                <div className="flex justify-between relative z-10">
-                  {["Concise", "Moderate", "Detailed"].map((length) => (
-                    <button key={length} onClick={() => setResponseLength(length)} className="flex flex-col items-center gap-3 group">
-                      <div className={`w-5 h-5 rounded-full border-4 transition-colors ${responseLength === length ? "bg-white border-[#5A7A62] shadow-sm scale-110" : "bg-white border-[#E5DFD3] group-hover:border-gray-300"}`} />
-                      <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${responseLength === length ? "text-[#5A7A62]" : "text-gray-400"}`}>{length}</span>
-                    </button>
-                  ))}
                 </div>
               </div>
             </div>

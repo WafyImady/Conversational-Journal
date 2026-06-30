@@ -3,27 +3,40 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation"; 
-import { LayoutGrid, TrendingUp, BrainCircuit, BookOpenText, Settings, User } from "lucide-react";
+import { LayoutGrid, TrendingUp, BrainCircuit, BookOpenText, Settings } from "lucide-react";
 import WeeklyStreak from "./WeeklyStreak";
-import { createClient } from "@/utils/client"; // 1. Added Supabase!
+import { createClient } from "@/utils/client"; 
 
 export default function Sidebar() {
   const pathname = usePathname(); 
   const supabase = createClient();
   
-  // 2. State to hold the dynamic name
-  const [userName, setUserName] = useState<string>("Loading...");
+  const [userName, setUserName] = useState<string>("");
 
-  // 3. Fetch the real user when the sidebar loads
   useEffect(() => {
-    const fetchUser = async () => {
+    async function fetchUserProfile() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user?.email) {
-        // Transforms "alex.thompson@email.com" into "alex thompson"
-        setUserName(user.email.split('@')[0].replace('.', ' '));
+      
+      if (user) {
+        // 1. Check if they have a custom display name saved in user_settings
+        const { data } = await supabase
+          .from('user_settings')
+          .select('display_name')
+          .eq('user_id', user.id)
+          .single();
+
+        if (data && data.display_name) {
+          // 2. Use their chosen name
+          setUserName(data.display_name);
+        } else if (user.email) {
+          // 3. Fallback: Clean up their email if no name is set yet
+          const cleanEmail = user.email.split('@')[0].replace(/[._]/g, ' ');
+          setUserName(cleanEmail);
+        }
       }
-    };
-    fetchUser();
+    }
+
+    fetchUserProfile();
   }, [supabase]);
 
   const navItems = [
@@ -37,15 +50,26 @@ export default function Sidebar() {
   return (
     <aside className="w-72 min-h-screen bg-[#F8F6F2] p-6 border-r border-[#E5E2DB] flex flex-col gap-10">
       
-      {/* Profile Section - NOW DYNAMIC! */}
-      <div className="flex items-center gap-3 p-4 bg-white rounded-full border border-[#DCDAD2] shadow-inner-sm">
-        <div className="w-12 h-12 rounded-full bg-[#E5E1D5] flex items-center justify-center border border-[#CDC9BF]">
-          <User className="w-6 h-6 text-[#8B8674]" />
+      {/* Profile Section - UPGRADED & DYNAMIC (Kept at the top) */}
+      <div className="flex items-center gap-3 p-2 pr-6 bg-white rounded-full border border-[#DCDAD2] shadow-sm hover:border-[#8EACA0] hover:shadow-md transition-all cursor-pointer group">
+          
+        {/* Dynamic Initial Avatar */}
+        <div className="w-11 h-11 rounded-full bg-[#5A7A62] flex items-center justify-center shrink-0 border-2 border-[#EAF2ED] group-hover:scale-105 transition-transform">
+          <span className="text-white text-lg font-bold tracking-wider uppercase">
+            {userName ? userName.charAt(0) : "U"}
+          </span>
         </div>
-        <div className="flex flex-col">
-          <span className="text-base font-bold text-[#2A2A2A] capitalize">Student Journal</span>
-          <span className="text-xs text-[#7F7F7F] capitalize">Welcome back, {userName}</span>
+
+        {/* Refined Typography Stack */}
+        <div className="flex flex-col justify-center overflow-hidden">
+          <span className="text-sm font-bold text-[#2A2A2A] capitalize group-hover:text-[#5A7A62] transition-colors leading-tight truncate max-w-[120px]">
+            {userName || "Loading..."}
+          </span>
+          <span className="text-[10px] font-bold text-[#8B8674] uppercase tracking-widest mt-1">
+            Echo Journal
+          </span>
         </div>
+
       </div>
 
       {/* Navigation Section */}

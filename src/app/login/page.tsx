@@ -23,7 +23,7 @@ export default function LoginPage() {
     if (isSignUp) {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) setMessage(`❌ Error: ${error.message}`);
-      else setMessage("✅ Success! Check your email to confirm.");
+      else setMessage("✅ Welcome to Echo! Please log in to start journaling.");
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setMessage(`❌ Error: ${error.message}`);
