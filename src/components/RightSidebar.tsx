@@ -52,60 +52,44 @@ export default function RightSidebar() {
   useEffect(() => {
     const fetchWeeklyData = async () => {
       try {
-        setIsLoading(true); // 1. Start the spinner
+        setIsLoading(true);
 
         const { data: { user }, error: authError } = await supabase.auth.getUser();
-        
-        // 2. If no user, safely exit. The finally block will kill the spinner.
-        if (authError || !user) return; 
+        if (authError || !user) return;
 
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+        // 1. Fetch BOTH transcripts (for vibes) AND themes!
         const { data: entries, error: dbError } = await supabase
           .from('journal_entries')
-          .select('chat_transcript')
+          .select('chat_transcript, themes') // <-- Notice themes is added here
           .eq('user_id', user.id)
           .gte('created_at', sevenDaysAgo.toISOString());
 
-        // 3. Catch database errors immediately
-        if (dbError) throw dbError; 
+        if (dbError) throw dbError;
+        if (!entries || entries.length === 0) return;
 
-        // 4. If no entries, safely exit. The finally block will kill the spinner.
-        if (!entries || entries.length === 0) return; 
-
+        // --- PART A: CALCULATE VIBES (Emotions) ---
         const emotionCounts: Record<string, number> = {};
         let totalEmotions = 0;
-        let allUserText = ""; 
 
         entries.forEach(entry => {
           if (Array.isArray(entry.chat_transcript)) {
             entry.chat_transcript.forEach((msg: any) => {
-              if (msg.role === 'user') {
-                if (Array.isArray(msg.emotions)) {
-                  msg.emotions.forEach((rawEmotion: any) => {
-                    // 1. Safely extract the string, no matter how messy the database is!
-                    let emotionStr = "";
-                    
-                    if (typeof rawEmotion === "string") {
-                      emotionStr = rawEmotion; // It's a clean string: "joy"
-                    } else if (Array.isArray(rawEmotion) && typeof rawEmotion[0] === "string") {
-                      emotionStr = rawEmotion[0]; // It's a nested array: ["joy"]
-                    } else if (rawEmotion && typeof rawEmotion.label === "string") {
-                      emotionStr = rawEmotion.label; // It's an old HuggingFace object: { label: "joy" }
-                    }
+              if (msg.role === 'user' && Array.isArray(msg.emotions)) {
+                msg.emotions.forEach((rawEmotion: any) => {
+                  let emotionStr = "";
+                  if (typeof rawEmotion === "string") emotionStr = rawEmotion;
+                  else if (Array.isArray(rawEmotion) && typeof rawEmotion[0] === "string") emotionStr = rawEmotion[0];
+                  else if (rawEmotion && typeof rawEmotion.label === "string") emotionStr = rawEmotion.label;
 
-                    // 2. Now that we guarantee it's a string, we can safely use toLowerCase()
-                    if (emotionStr && emotionStr.toLowerCase() !== 'neutral') {
-                      const cleanEmotion = emotionStr.toLowerCase();
-                      emotionCounts[cleanEmotion] = (emotionCounts[cleanEmotion] || 0) + 1;
-                      totalEmotions++;
-                    }
-                  });
-                }
-                if (msg.content) {
-                  allUserText += " " + msg.content.toLowerCase();
-                }
+                  if (emotionStr && emotionStr.toLowerCase() !== 'neutral') {
+                    const cleanEmotion = emotionStr.toLowerCase();
+                    emotionCounts[cleanEmotion] = (emotionCounts[cleanEmotion] || 0) + 1;
+                    totalEmotions++;
+                  }
+                });
               }
             });
           }
@@ -123,26 +107,53 @@ export default function RightSidebar() {
           if (sortedEmotions.length > 1) setSecondaryVibe({ ...sortedEmotions[1], style: getEmotionStyle(sortedEmotions[1].name) });
         }
 
-        const rawWords = allUserText.match(/\b[a-z]{4,}\b/g) || [];
-        const wordCounts: Record<string, number> = {};
+        // --- PART B: CALCULATE HISTORICAL THEMES (The Bulletproof Way!) ---
+        const themeCounts: Record<string, number> = {};
 
-        rawWords.forEach(word => {
-          if (!STOP_WORDS.has(word)) {
-            wordCounts[word] = (wordCounts[word] || 0) + 1;
+        entries.forEach((entry) => {
+          let currentThemes: string[] = [];
+
+          // 1. How did Supabase give us the data? Let's handle all possibilities:
+          if (Array.isArray(entry.themes)) {
+            // It's a clean JavaScript array
+            currentThemes = entry.themes;
+          } else if (typeof entry.themes === 'string') {
+             // It's a string! Let's try to parse it.
+            try {
+              // Handle Postgres Array format: "{#Tag1,#Tag2}"
+              if (entry.themes.startsWith('{') && entry.themes.endsWith('}')) {
+                currentThemes = entry.themes
+                  .slice(1, -1) // Remove { and }
+                  .split(',') // Split by comma
+                  .map(t => t.replace(/^"|"$/g, '').trim()); // Remove quotes
+              } 
+              // Handle JSON Array format: '["#Tag1", "#Tag2"]'
+              else {
+                currentThemes = JSON.parse(entry.themes);
+              }
+            } catch (e) {
+              console.warn("Could not parse themes string:", entry.themes);
+            }
           }
+
+          // 2. Now that we definitely have an array, tally them up!
+          currentThemes.forEach((theme) => {
+            if (typeof theme === 'string' && theme.startsWith('#')) {
+              themeCounts[theme] = (themeCounts[theme] || 0) + 1;
+            }
+          });
         });
 
-        const extractedThemes = Object.entries(wordCounts)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 3)
-          .map(([word]) => `#${word.charAt(0).toUpperCase() + word.slice(1)}`); 
+        const topThemes = Object.entries(themeCounts)
+          .sort((a, b) => b[1] - a[1]) // Sort highest count first
+          .slice(0, 3)                 // Grab top 3
+          .map(([theme]) => theme);    // Extract just the string
 
-        setThemes(extractedThemes);
+        setThemes(topThemes);
 
       } catch (error) {
         console.error("Failed to load weekly trends:", error);
       } finally {
-        // 5. THE KILL SWITCH: Runs no matter what, stopping the infinite spin!
         setIsLoading(false);
       }
     };

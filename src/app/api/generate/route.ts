@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType, Schema } from "@google/generative-ai";
-import { createClient } from '@/utils/server'; // Make sure this import is here!
+import { createClient } from '@/utils/server'; 
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
       lengthPrompt = "Keep the narrative balanced, around 100 words.";
     }
 
-    // 3. DEFINE THE STRICT JSON SCHEMA
+    // 3. DEFINE THE STRICT JSON SCHEMA (NEW: Added themes!)
     const responseSchema: Schema = {
       type: SchemaType.OBJECT,
       properties: {
@@ -75,11 +75,18 @@ export async function POST(req: Request) {
             required: ["id", "title", "desc", "completed"],
           },
         },
+        themes: {
+          type: SchemaType.ARRAY,
+          description: "Exactly 3 conceptual hashtags representing the main topics discussed (e.g., #CareerStress, #Milestone). Avoid generic words like #Today.",
+          items: {
+            type: SchemaType.STRING,
+          },
+        },
       },
-      required: ["narrative", "actions"],
+      required: ["narrative", "actions", "themes"], // <-- Don't forget to require it here!
     };
 
-    // 4. THE UPGRADED PROMPT
+    // 4. THE UPGRADED PROMPT (NEW: Added theme instructions!)
     const prompt = `
     You are an expert AI journaling assistant. 
     Review the following chat transcript and the verified emotions for this session.
@@ -92,7 +99,10 @@ export async function POST(req: Request) {
     Chat Transcript:
     ${formattedHistory}
 
-    Based on the conversation, synthesize a first-person reflective journal entry following the Personality and Length rules perfectly. Then, extract 3 actionable steps.
+    Tasks:
+    1. Synthesize a first-person reflective journal entry following the Personality and Length rules perfectly. 
+    2. Extract 3 actionable steps.
+    3. Extract exactly 3 conceptual hashtags representing the core emotional or structural focus of the entry (e.g., #CareerStress, #Rest, #AnxietyManagement). Do NOT use generic filler words like #Today, #Need, or #Yeah.
     `;
 
     // 5. GENERATE WITH AUTOMATIC FALLBACK

@@ -95,31 +95,62 @@ function AnalysisContent() {
     setIsSaving(true);
 
     try {
-      // 1. Format the slider emotions into objects
+      // 1. Format the slider and manually added emotions
       const validSliderEmotions = emotions
         .filter(e => e.intensity > 20)
         .map(e => ({ name: e.name, intensity: e.intensity })); 
 
-      // 2. Format the manually added emotions into objects
-      const formattedAddedEmotions = addedEmotions.map(name => ({ 
-        name: name, 
-        intensity: 50 
-      }));
-      
-      // 3. Combine them into one clean array (NO .join string conversions!)
+      const formattedAddedEmotions = addedEmotions.map(name => ({ name, intensity: 50 }));
       const finalEmotionData = [...validSliderEmotions, ...formattedAddedEmotions];
+      
+      // We will need a string of just the emotion names to pass to Gemini
+      const emotionNamesString = finalEmotionData.map(e => e.name).join(", ");
 
-      // 4. Send the raw array to Supabase
-      const { error } = await supabase
+      // 2. Fetch the transcript so we can send it to Gemini
+      const { data: entryData, error: fetchError } = await supabase
+        .from('journal_entries')
+        .select('chat_transcript')
+        .eq('id', entryId)
+        .single();
+        
+      if (fetchError) throw fetchError;
+
+      // 3. ✨ NEW: Call your Gemini API to generate Narrative, Actions & THEMES! ✨
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const apiResponse = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ 
+          transcript: entryData.chat_transcript, 
+          emotions: emotionNamesString 
+        })
+      });
+
+      const geminiResult = await apiResponse.json();
+      
+      if (geminiResult.error) {
+        throw new Error(geminiResult.error);
+      }
+
+      // 4. Save EVERYTHING to Supabase at once!
+      const { error: updateError } = await supabase
         .from('journal_entries')
         .update({ 
-          emotions: finalEmotionData, // Pass the array directly!
+          emotions: finalEmotionData,
+          narrative: geminiResult.narrative, 
+          action_items: geminiResult.actions, 
+          themes: geminiResult.themes, // <-- HERE ARE YOUR THEMES!
           status: 'reviewing' 
         })
         .eq('id', entryId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
+      // 5. Finally, move to the insights page to view the generated content!
       router.push(`/insights?id=${entryId}`);
 
     } catch (error) {

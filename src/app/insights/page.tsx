@@ -22,55 +22,51 @@ function InsightsContent() {
   const [narrative, setNarrative] = useState("");
   const [actions, setActions] = useState<ActionItem[]>([]);
   
-  const [isGenerating, setIsGenerating] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // --- NEW: STATES FOR ADDING CUSTOM ACTIONS ---
+  // --- STATES FOR ADDING CUSTOM ACTIONS ---
   const [isAddingAction, setIsAddingAction] = useState(false);
   const [newActionTitle, setNewActionTitle] = useState("");
   const [newActionDesc, setNewActionDesc] = useState("");
 
-  // --- THE AI GENERATION ENGINE ---
-  const generateInsights = async () => {
-    if (!entryId) return;
-    setIsGenerating(true);
-
-    try {
-      const { data: entryData, error: dbError } = await supabase
-        .from('journal_entries')
-        .select('chat_transcript, emotions')
-        .eq('id', entryId)
-        .single();
-
-      if (dbError) throw dbError;
-
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          transcript: entryData.chat_transcript,
-          emotions: entryData.emotions 
-        }),
-      });
-
-      const aiData = await response.json();
-      
-      if (aiData.error) throw new Error(aiData.error);
-
-      setNarrative(aiData.narrative);
-      setActions(aiData.actions);
-
-    } catch (error) {
-      console.error("Failed to generate insights:", error);
-      setNarrative("We encountered an error while synthesizing your journal entry. Please try refreshing.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
+  // --- THE FETCH ENGINE (READ ONLY) ---
   useEffect(() => {
-    generateInsights();
-  }, [entryId]);
+    const fetchGeneratedInsights = async () => {
+      if (!entryId) return;
+      setIsLoading(true);
+
+      try {
+        const { data: entryData, error: dbError } = await supabase
+          .from('journal_entries')
+          .select('narrative, action_items')
+          .eq('id', entryId)
+          .single();
+
+        if (dbError) throw dbError;
+
+        // Load the data that was already generated on the Analytics page!
+        setNarrative(entryData.narrative || "No narrative generated.");
+        
+        // Ensure actions is always an array
+        let parsedActions = [];
+        if (Array.isArray(entryData.action_items)) {
+          parsedActions = entryData.action_items;
+        } else if (typeof entryData.action_items === 'string') {
+          try { parsedActions = JSON.parse(entryData.action_items); } catch(e) {}
+        }
+        setActions(parsedActions);
+
+      } catch (error) {
+        console.error("Failed to fetch insights:", error);
+        setNarrative("We encountered an error while loading your journal entry. Please try refreshing.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchGeneratedInsights();
+  }, [entryId, supabase]);
 
   const toggleAction = (id: number) => {
     setActions(actions.map(action => 
@@ -78,21 +74,18 @@ function InsightsContent() {
     ));
   };
 
-  // --- NEW: HANDLER TO SAVE CUSTOM ACTION ---
+  // --- HANDLER TO SAVE CUSTOM ACTION ---
   const handleAddAction = () => {
-    if (!newActionTitle.trim()) return; // Prevent empty actions
+    if (!newActionTitle.trim()) return;
 
     const newCustomAction: ActionItem = {
-      id: Date.now(), // Generate a unique ID for the new item
+      id: Date.now(), 
       title: newActionTitle.trim(),
       desc: newActionDesc.trim(),
       completed: false
     };
 
-    // Add to our list
     setActions([...actions, newCustomAction]);
-    
-    // Reset the form
     setNewActionTitle("");
     setNewActionDesc("");
     setIsAddingAction(false);
@@ -108,14 +101,13 @@ function InsightsContent() {
         .from('journal_entries')
         .update({ 
           narrative: narrative,
-          action_items: actions, // This now includes your custom actions!
+          action_items: actions, // Saves the toggled states and custom actions
           status: 'completed',
           completed_at: new Date().toISOString() 
         })
         .eq('id', entryId);
 
       if (error) throw error;
-
       router.push("/");
 
     } catch (error) {
@@ -125,12 +117,12 @@ function InsightsContent() {
     }
   };
 
-  if (isGenerating) {
+  if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
         <div className="flex flex-col items-center gap-4 text-[#8EACA0]">
           <Loader2 className="w-10 h-10 animate-spin" />
-          <p className="text-sm font-semibold tracking-wider uppercase">Synthesizing your thoughts...</p>
+          <p className="text-sm font-semibold tracking-wider uppercase">Loading your insights...</p>
         </div>
       </div>
     );
@@ -218,7 +210,7 @@ function InsightsContent() {
             ))}
           </div>
 
-          {/* --- NEW: INTERACTIVE ADD ACTION UI --- */}
+          {/* INTERACTIVE ADD ACTION UI */}
           {isAddingAction ? (
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-[#D28C81] flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-200">
               <input
@@ -272,15 +264,11 @@ function InsightsContent() {
       <hr className="border-t-2 border-dashed border-[#F0EBE1] my-8" />
 
       {/* Bottom Action Bar */}
-      <div className="flex justify-between items-center mb-8">
-        <button 
-          onClick={generateInsights}
-          className="px-6 py-3 border border-[#F5E6E3] text-[#D28C81] font-semibold text-sm rounded-full flex items-center gap-2 hover:bg-[#FCF4F2] transition-colors bg-white"
-        >
-          <RefreshCw className={`w-4 h-4 ${isGenerating ? "animate-spin" : ""}`} />
-          Regenerate Narrative
-        </button>
+      <div className="flex justify-end items-center mb-8">
         
+        {/* Note: Regenerate button was removed since generation happens on the Analytics page now.
+            If you want it back, you'd need to re-add the API fetch logic just for that button! */}
+
         <div className="flex items-center gap-6">
           <button 
             onClick={handleFinalize}
