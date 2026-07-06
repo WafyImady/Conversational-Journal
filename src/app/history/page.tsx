@@ -346,11 +346,46 @@ export default function ArchivePage() {
                   </div>
                 </div>
 
+                {/* --- UPGRADATION: DYNAMIC PATTERN INSIGHTS CARD --- */}
                 <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex gap-5 items-start">
-                  <div className="bg-[#FCF4F2] p-3 rounded-2xl shrink-0"><Sparkles className="w-6 h-6 text-[#D28C81]" /></div>
+                  <div className="bg-[#FCF4F2] p-3 rounded-2xl shrink-0">
+                    <Sparkles className="w-6 h-6 text-[#D28C81]" />
+                  </div>
                   <div>
                     <h3 className="text-lg font-bold text-gray-900 mb-2">Weekly Pattern Insight</h3>
-                    <p className="text-gray-500 text-sm leading-relaxed">Based on your recent activity, your most dominant feeling is <span className="font-bold text-gray-800">{stats.topEmotion}</span>. Continue logging daily to unlock deeper correlations between your schedule and your mental state.</p>
+                    <p className="text-gray-500 text-sm leading-relaxed">
+                      {stats.totalEntries === 0 ? (
+                        "Your archive is a clean slate. Once you begin reflecting with Echo, this space will map out cognitive shifts, behavioral triggers, and macro emotional patterns over time."
+                      ) : stats.avgStress > 6.5 ? (
+                        <>
+                          Your emotional timeline indicates an elevated baseline of 
+                          <span className="font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded ml-1 mr-1 capitalize">{stats.topEmotion}</span> 
+                          tendencies, with your stress peaking at <span className="font-bold text-gray-800">{stats.avgStress}/10</span>. 
+                          This structural accumulation often correlates with academic milestones or high-stakes deadlines. Consider reviewing your logged 
+                          <span className="font-medium text-gray-800"> Suggested Action Items</span> on your highly active days to implement micro-interventions before your stress compounding peaks.
+                        </>
+                      ) : stats.topEmotion.toLowerCase() === 'neutral' ? (
+                        <>
+                          Your timeline exhibits an exceptionally stable emotional equilibrium, dominated by 
+                          <span className="font-bold text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded ml-1 mr-1">Neutral</span> 
+                          states. While a flat baseline represents protective resilience, clinical psychology shows that high volume 'neutral' logging can sometimes mask emotional avoidance or burnout exhaustion. 
+                          Check your detailed <span className="font-medium text-gray-800">Conversation Transcripts</span> on days with low graph values to see if your inner thoughts align with this emotional plateau.
+                        </>
+                      ) : ['anger', 'annoyance', 'disappointment', 'sadness', 'fear', 'nervousness'].includes(stats.topEmotion.toLowerCase()) ? (
+                        <>
+                          A macro-analysis of your timeline flags a recurring cluster of 
+                          <span className="font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded ml-1 mr-1 capitalize">{stats.topEmotion}</span> 
+                          vibrations. This trajectory indicates that recent life stressors are actively impacting your daily cognitive state. Notice how your 
+                          <span className="font-semibold text-[#98AC92]">Emotional Trend Line</span> dips on these days—this is a valuable indicator to step back and deliberately tackle your custom action plans.
+                        </>
+                      ) : (
+                        <>
+                          Your emotional architecture is currently reflecting a healthy, positive momentum, spearheaded by consistent 
+                          <span className="font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded ml-1 mr-1 capitalize">{stats.topEmotion}</span> 
+                          states. This upward trend indicates strong emotional regulation and positive environmental factors. Use these high-wellbeing windows to build buffer habits or tackle demanding final year tasks while your cognitive energy is optimized!
+                        </>
+                      )}
+                    </p>
                   </div>
                 </div>
               </div>
