@@ -46,6 +46,7 @@ export default function ArchivePage() {
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [stats, setStats] = useState({ avgStress: 0, totalEntries: 0, topEmotion: "N/A" });
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Data Processor Helper
   const processJournalData = (data: any[]) => {
@@ -168,6 +169,7 @@ export default function ArchivePage() {
         .from('journal_entries')
         .select('*')
         .eq('user_id', user.id)
+        .eq('is_deleted', false)
         .order('created_at', { ascending: true });
 
       if (selectedDate) {
@@ -190,7 +192,7 @@ export default function ArchivePage() {
     }
 
     fetchData();
-  }, [supabase, timeFilter, selectedDate]);
+  }, [supabase, timeFilter, selectedDate, refreshKey]);
 
 
   const toggleActionCompletion = async (entryId: string, actionIndex: number) => {
@@ -215,7 +217,24 @@ export default function ArchivePage() {
 
     if (error) console.error("Failed to save action item to database:", error);
   };
+  
+  // --- NEW: The Deletion Engine ---
+  const handleDeleteEntry = async (entryId: string) => {
+    if (!confirm("Are you sure you want to delete this reflection? This cannot be undone.")) return;
 
+    const { error } = await supabase
+      .from('journal_entries')
+      .update({ is_deleted: true })
+      .eq('id', entryId);
+
+    if (error) {
+      console.error("Failed to delete entry:", error);
+      return;
+    }
+
+    setSelectedEntry(null); // Close the modal
+    setRefreshKey(prev => prev + 1); // Trigger charts to recalculate instantly!
+  };
 
   const filteredEntries = journalEntries.filter((entry) => {
     const matchesMood = activeMood === "All" || entry.moodCategory === activeMood;
@@ -579,6 +598,16 @@ export default function ArchivePage() {
                   </div>
                 </div>
               )}
+            </div>
+            {/* --- NEW: DELETE BUTTON FOOTER --- */}
+            <div className="p-4 border-t border-gray-100 flex justify-end bg-white rounded-b-3xl shrink-0">
+              <button
+                onClick={() => handleDeleteEntry(selectedEntry.id)}
+                className="px-4 py-2 flex items-center gap-2 text-xs font-bold text-red-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all shadow-sm outline-none"
+              >
+                <X className="w-4 h-4" />
+                Delete Entry
+              </button>
             </div>
 
           </div>
