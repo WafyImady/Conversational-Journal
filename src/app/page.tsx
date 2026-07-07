@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation"; // <-- ADD useSearchParams
 import JournalFeed, { Message } from "@/components/JournalFeed";
 import Sidebar from "@/components/Sidebar";
@@ -9,7 +9,7 @@ import ChatInput from "@/components/ChatInput";
 import { createClient } from "@/utils/client";
 import { Loader2, AlertCircle, X } from "lucide-react"; // <-- ADD AlertCircle
 
-export default function Home() {
+function DashboardContent() {
   const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -328,5 +328,17 @@ export default function Home() {
 
       <RightSidebar />
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#8EACA0]" />
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }
