@@ -63,18 +63,18 @@ export default function ArchivePage() {
       if (entry.emotions) {
         let parsed = entry.emotions;
 
-        // 1. If it's a string, try to parse it as JSON
         if (typeof parsed === 'string') {
-          try { parsed = JSON.parse(parsed); } catch (e) { /* keep as string */ }
+          try { parsed = JSON.parse(parsed); } catch (e) {}
         }
 
-        // 2. Now extract the emotion
+        // --- NEW CHECK: Handle the explicit primary/background object format ---
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.primary) {
+          parsed = parsed.primary; // Reassign 'parsed' to be the primary array!
+        }
+
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Sort by intensity if possible, otherwise take the first
           const sorted = [...parsed].sort((a, b) => (b.intensity || 0) - (a.intensity || 0));
           const primary = sorted[0];
-          
-          // Check for all possible property names
           emotion = primary.name || primary.label || primary.emotion || 'Neutral';
         } else if (typeof parsed === 'string') {
           emotion = parsed.split(',')[0].trim();

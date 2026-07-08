@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { transcript, emotions } = body;
+    const { transcript, primaryEmotions, backgroundEmotions } = body;
 
     if (!transcript || !Array.isArray(transcript)) {
       return NextResponse.json({ error: "Invalid transcript." }, { status: 400 });
@@ -91,7 +91,9 @@ export async function POST(req: Request) {
     You are an expert AI journaling assistant. 
     Review the following chat transcript and the verified emotions for this session.
 
-    Verified Emotions: ${emotions || "None specified"}
+    Verified Emotions:
+    - Primary (Dominant): ${primaryEmotions || "None specified"}
+    - Background (Subtle): ${backgroundEmotions || "None specified"}
     
     Personality Rules for Narrative: ${stylePrompt}
     Length Constraint for Narrative: ${lengthPrompt}

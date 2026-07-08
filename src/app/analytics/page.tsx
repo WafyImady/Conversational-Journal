@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation"; 
 import { createClient } from "@/utils/client";
 import Sidebar from "@/components/Sidebar";
-import { Sparkles, X, Plus, Mic, CheckCircle2, Loader2 } from "lucide-react"; 
+import { Sparkles, X, Plus, CheckCircle2, Loader2 } from "lucide-react"; 
 
 // Create an interface for our dynamic emotions
 interface EmotionSlider {
@@ -18,16 +18,15 @@ function AnalysisContent() {
   const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const entryId = searchParams.get("id"); // Grab the ID from the URL!
+  const entryId = searchParams.get("id");
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
-  const [emotions, setEmotions] = useState<EmotionSlider[]>([]);
+  const [primaryEmotions, setPrimaryEmotions] = useState<EmotionSlider[]>([]);
+  const [backgroundTags, setBackgroundTags] = useState<string[]>([]);
   const [newEmotion, setNewEmotion] = useState("");
-  const [addedEmotions, setAddedEmotions] = useState<string[]>([]);
 
-  // --- THE FETCH & CALCULATE ENGINE ---
+  // --- 1. THE FETCH & CALCULATE ENGINE ---
   useEffect(() => {
     const fetchChatData = async () => {
       if (!entryId) return;
@@ -42,16 +41,13 @@ function AnalysisContent() {
         if (error) throw error;
 
         const transcript = data.chat_transcript || [];
-        
-        // 1. Map to track how many times an emotion appears
         const emotionMap: Record<string, { count: number, quote: string }> = {};
 
-        // 2. Loop through the chat and tally up the micro-emotions
+        // Tally up the micro-emotions
         transcript.forEach((msg: any) => {
           if (msg.role === 'user' && msg.emotions && Array.isArray(msg.emotions)) {
             msg.emotions.forEach((emo: string) => {
               if (!emotionMap[emo]) {
-                // Save the first time they felt it as the quote
                 emotionMap[emo] = { count: 0, quote: msg.content }; 
               }
               emotionMap[emo].count += 1;
@@ -59,21 +55,27 @@ function AnalysisContent() {
           }
         });
 
-        // 3. Convert the tallies into slider data
-        const dynamicSliders = Object.keys(emotionMap).map((emoName, index) => {
-          const data = emotionMap[emoName];
-          // Base intensity is 60%. Add 15% for every extra time they felt it, capped at 95%
-          const calculatedIntensity = Math.min(60 + ((data.count - 1) * 15), 95);
-          
-          return {
-            id: index + 1,
-            name: emoName,
-            intensity: calculatedIntensity,
-            quote: data.quote
-          };
-        });
+        // Convert tallies into an array and SORT by frequency
+        const allDetectedEmotions = Object.keys(emotionMap)
+          .map((emoName, index) => {
+            const data = emotionMap[emoName];
+            const calculatedIntensity = Math.min(60 + ((data.count - 1) * 15), 95);
+            return {
+              id: index + 1,
+              name: emoName,
+              intensity: calculatedIntensity,
+              quote: data.quote,
+              count: data.count 
+            };
+          })
+          .sort((a, b) => b.count - a.count);
 
-        setEmotions(dynamicSliders);
+        // Split into Top 3 Sliders and Background Tags
+        const top3Sliders = allDetectedEmotions.slice(0, 3);
+        const leftoverTags = allDetectedEmotions.slice(3).map(e => e.name);
+
+        setPrimaryEmotions(top3Sliders);
+        setBackgroundTags(leftoverTags);
       } catch (error) {
         console.error("Failed to load transcript:", error);
       } finally {
@@ -82,75 +84,103 @@ function AnalysisContent() {
     };
 
     fetchChatData();
-  }, [entryId]);
+  }, [entryId, supabase]);
 
+  // --- 2. THE SWAPPING LOGIC (Promote/Demote) ---
   const handleSliderChange = (id: number, newValue: number) => {
-    setEmotions(emotions.map(emp => 
+    setPrimaryEmotions(primaryEmotions.map(emp => 
       emp.id === id ? { ...emp, intensity: newValue } : emp
     ));
   };
 
+  const demoteToTag = (emotionId: number, emotionName: string) => {
+    setPrimaryEmotions(prev => prev.filter(e => e.id !== emotionId));
+    if (!backgroundTags.includes(emotionName)) {
+      setBackgroundTags(prev => [emotionName, ...prev]);
+    }
+  };
+
+  const promoteToSlider = (emotionName: string) => {
+    setBackgroundTags(prev => prev.filter(e => e !== emotionName));
+    setPrimaryEmotions(prev => [
+      { id: Date.now(), name: emotionName, intensity: 50, quote: "Promoted from background" },
+      ...prev
+    ]);
+  };
+
+  const handleManualAdd = () => {
+    if (newEmotion.trim()) {
+      const formatted = newEmotion.trim().charAt(0).toUpperCase() + newEmotion.trim().slice(1).toLowerCase();
+      
+      // Prevent duplicates
+      if (primaryEmotions.some(e => e.name === formatted)) {
+        setNewEmotion("");
+        return;
+      }
+
+      // Instantly make it a slider!
+      setPrimaryEmotions(prev => [
+        { id: Date.now(), name: formatted, intensity: 60, quote: "Added manually by you" },
+        ...prev
+      ]);
+      setNewEmotion("");
+    }
+  };
+
+  // 3. THE CORRECTED SAVE AND GENERATE FUNCTION 
   const handleConfirmAnalysis = async () => {
     if (!entryId) return;
     setIsSaving(true);
 
     try {
-      // 1. Format the slider and manually added emotions
-      const validSliderEmotions = emotions
+      const validSliders = primaryEmotions
         .filter(e => e.intensity > 20)
         .map(e => ({ name: e.name, intensity: e.intensity })); 
-
-      const formattedAddedEmotions = addedEmotions.map(name => ({ name, intensity: 50 }));
-      const finalEmotionData = [...validSliderEmotions, ...formattedAddedEmotions];
       
-      // We will need a string of just the emotion names to pass to Gemini
-      const emotionNamesString = finalEmotionData.map(e => e.name).join(", ");
+      const finalEmotionData = { primary: validSliders, background: backgroundTags };
 
-      // 2. Fetch the transcript so we can send it to Gemini
+      // FETCH TRANSCRIPT
       const { data: entryData, error: fetchError } = await supabase
         .from('journal_entries')
         .select('chat_transcript')
         .eq('id', entryId)
         .single();
         
-      if (fetchError) throw fetchError;
+      // SAFE CHECK
+      if (fetchError || !entryData) {
+        throw new Error(fetchError?.message || "Journal entry not found.");
+      }
 
-      // 3. ✨ NEW: Call your Gemini API to generate Narrative, Actions & THEMES! ✨
       const { data: { session } } = await supabase.auth.getSession();
       
+      // CALL API
       const apiResponse = await fetch("/api/generate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session?.access_token}`
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
         body: JSON.stringify({ 
           transcript: entryData.chat_transcript, 
-          emotions: emotionNamesString 
+          primaryEmotions: validSliders.map(e => e.name).join(", "), 
+          backgroundEmotions: backgroundTags.join(", ") 
         })
       });
 
       const geminiResult = await apiResponse.json();
-      
-      if (geminiResult.error) {
-        throw new Error(geminiResult.error);
-      }
+      if (geminiResult.error) throw new Error(geminiResult.error);
 
-      // 4. Save EVERYTHING to Supabase at once!
+      // SAVE TO SUPABASE
       const { error: updateError } = await supabase
         .from('journal_entries')
         .update({ 
-          emotions: finalEmotionData,
+          emotions: finalEmotionData, 
           narrative: geminiResult.narrative, 
           action_items: geminiResult.actions, 
-          themes: geminiResult.themes, // <-- HERE ARE YOUR THEMES!
+          themes: geminiResult.themes, 
           status: 'reviewing' 
         })
         .eq('id', entryId);
 
       if (updateError) throw updateError;
 
-      // 5. Finally, move to the insights page to view the generated content!
       router.push(`/insights?id=${entryId}`);
 
     } catch (error) {
@@ -161,6 +191,7 @@ function AnalysisContent() {
     }
   };
 
+  // --- 4. RENDER UI ---
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
@@ -200,7 +231,7 @@ function AnalysisContent() {
       {/* Main Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         
-        {/* LEFT COLUMN */}
+        {/* LEFT COLUMN: Sliders and Tags */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-50 min-h-[500px]">
             <div className="flex items-center mb-6">
@@ -210,13 +241,14 @@ function AnalysisContent() {
               <h2 className="text-xl font-bold text-gray-900">Identified Emotions</h2>
             </div>
 
+            {/* SLIDERS */}
             <div className="space-y-4">
-              {emotions.length === 0 ? (
+              {primaryEmotions.length === 0 ? (
                 <div className="text-center py-10 text-gray-500">
-                  No intense emotions were detected during this session. <br/> Feel free to add your own manually!
+                  No intense emotions were detected. Feel free to add your own manually!
                 </div>
               ) : (
-                emotions.map((emotion) => (
+                primaryEmotions.map((emotion) => (
                   <div key={emotion.id} className="relative bg-[#FAF9F6] p-5 rounded-2xl border border-gray-100">
                     <div className="flex justify-between items-center mb-4">
                       <div className="flex items-center gap-4">
@@ -228,7 +260,13 @@ function AnalysisContent() {
                         </span>
                       </div>
                       <div className="flex items-center gap-4">
-                        <button className="text-gray-400 hover:text-gray-600" onClick={() => handleSliderChange(emotion.id, 0)}><X className="w-4 h-4" /></button>
+                        <button 
+                          className="text-gray-400 hover:text-red-500 transition-colors" 
+                          onClick={() => demoteToTag(emotion.id, emotion.name)}
+                          title="Remove from primary"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                         <span className="font-bold text-gray-900 w-12 text-right text-lg">{emotion.intensity}%</span>
                       </div>
                     </div>
@@ -249,12 +287,30 @@ function AnalysisContent() {
                 ))
               )}
             </div>
+
+            {/* BACKGROUND TAGS */}
+            {backgroundTags.length > 0 && (
+              <div className="mt-8 border-t border-gray-100 pt-6">
+                <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">Other Detected Frequencies</p>
+                <div className="flex flex-wrap gap-2">
+                  {backgroundTags.map((tag, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => promoteToSlider(tag)}
+                      className="bg-white border border-gray-200 text-gray-600 hover:border-[#8EACA0] hover:text-[#8EACA0] px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 shadow-sm transition-all"
+                    >
+                      <Plus className="w-3 h-3" /> {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Human Check */}
+        {/* RIGHT COLUMN: Human Check / Custom Adder */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-50 h-full">
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-50 h-full flex flex-col">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-3">
                 <div className="bg-[#E8F0EA] p-2 rounded-xl text-[#5B8266]">
@@ -269,10 +325,10 @@ function AnalysisContent() {
 
             <h4 className="font-bold text-gray-900 mb-1">Your Thoughts</h4>
             <p className="text-sm text-gray-500 mb-5 leading-relaxed">
-              If the AI missed any nuances, tell us directly. Your input helps us learn.
+              If the AI missed any nuances, tell us directly. Typing an emotion here will instantly add it to your sliders.
             </p>
 
-            <div className="bg-[#FAF9F6] p-3 rounded-2xl border border-gray-100 mb-6">
+            <div className="bg-[#FAF9F6] p-3 rounded-2xl border border-gray-100">
               <div className="flex gap-2 mb-2">
                 <input 
                   type="text" 
@@ -281,42 +337,17 @@ function AnalysisContent() {
                   value={newEmotion}
                   onChange={(e) => setNewEmotion(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newEmotion.trim()) {
-                      setAddedEmotions([...addedEmotions, newEmotion.trim()]);
-                      setNewEmotion("");
-                    }
+                    if (e.key === 'Enter') handleManualAdd();
                   }}
                 />
               </div>
               <div className="flex justify-end">
                 <button 
-                  onClick={() => {
-                    if (newEmotion.trim()) {
-                      setAddedEmotions([...addedEmotions, newEmotion.trim()]);
-                      setNewEmotion("");
-                    }
-                  }}
+                  onClick={handleManualAdd}
                   className="bg-[#8EACA0] hover:bg-[#7D9A8F] text-white px-4 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
                 >
                   Add <Plus className="w-4 h-4" />
                 </button>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">Added Emotions</p>
-              <div className="flex flex-wrap gap-2">
-                {addedEmotions.map((em, idx) => (
-                  <span key={idx} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 shadow-sm">
-                    {em}
-                    <button 
-                      onClick={() => setAddedEmotions(addedEmotions.filter((_, i) => i !== idx))}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
               </div>
             </div>
           </div>
@@ -357,7 +388,6 @@ export default function AnalysisPage() {
     <div className="flex min-h-screen bg-[#FAF9F6]">
       <Sidebar />
       <main className="flex-grow flex flex-col h-screen overflow-y-auto relative border-r border-[#E5E2DB]">
-        {/* Suspense boundary is required in Next.js when using useSearchParams */}
         <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="w-8 h-8 text-[#8EACA0] animate-spin" /></div>}>
           <AnalysisContent />
         </Suspense>
