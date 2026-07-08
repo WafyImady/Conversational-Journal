@@ -12,7 +12,7 @@ export async function GET() {
     await fetch("https://api-inference.huggingface.co/models/SamLowe/roberta-base-go_emotions", {
       method: "POST",
       headers: { 
-        "Authorization": `Bearer ${process.env.HUGGING_FACE_API_KEY}`,
+        "Authorization": `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({ inputs: "ping" }), 

@@ -77,7 +77,24 @@ export async function POST(req: Request) {
     // ---------------------------------------------------------
     let primaryEmotion, aiNarrative;
     try {
-      [primaryEmotion, aiNarrative] = await Promise.all([hfPromise, geminiPromise()]);
+      // 1. Wrap the HF Promise with a timer
+      const timedHfPromise = (async () => {
+        console.time("⏱️ HuggingFace Time");
+        const res = await hfPromise;
+        console.timeEnd("⏱️ HuggingFace Time");
+        return res;
+      })();
+
+      // 2. Wrap the Gemini Promise with a timer
+      const timedGeminiPromise = (async () => {
+        console.time("🧠 Gemini Time");
+        const res = await geminiPromise();
+        console.timeEnd("🧠 Gemini Time");
+        return res;
+      })();
+
+      // 3. Run them both!
+      [primaryEmotion, aiNarrative] = await Promise.all([timedHfPromise, timedGeminiPromise]);
     } catch (error) {
       console.error("Gemini failed entirely:", error);
       return NextResponse.json({ 

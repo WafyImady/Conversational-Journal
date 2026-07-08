@@ -19,6 +19,7 @@ function DashboardContent() {
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAuthChecking, setIsAuthChecking] = useState(true); 
+  const [isTyping, setIsTyping] = useState(false);
 
   // --- NEW: INCOMPLETE SESSION TRACKER ---
   // Add createdAt to the state interface
@@ -103,6 +104,7 @@ function DashboardContent() {
 
     const currentTranscript = [...messages, userMessage];
     setMessages(currentTranscript);
+    setIsTyping(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -178,6 +180,8 @@ function DashboardContent() {
 
     } catch (error) {
       console.error("Failed to process message:", error);
+    } finally {
+      setIsTyping(false);
     }
   };
 
@@ -296,11 +300,11 @@ function DashboardContent() {
         {/* --- END ALERT CARD --- */}
 
         <div className="flex-grow overflow-y-auto px-10 py-6 flex flex-col">
-          <JournalFeed messages={messages} />
+          <JournalFeed messages={messages} isTyping={isTyping} />
           
           {/* NEW: Quick Start Chips appear ONLY when the AI has spoken, but the user hasn't yet */}
           {messages.length === 1 && (
-            <div className="mt-8 flex flex-wrap gap-3 max-w-2xl">
+            <div className="mt-2 flex flex-wrap gap-3 max-w-2xl">
               {[
                 "I'm feeling a bit anxious.",
                 "Today was actually really great.",
