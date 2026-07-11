@@ -15,21 +15,80 @@ const emotionScores: Record<string, number> = {
   embarrassment: 20, fear: 15, grief: 5, nervousness: 30, remorse: 15, sadness: 10
 };
 
+// --- NEW: EXTENDED CUSTOM EMOTION STEM RECOGNITION ---
+const getCustomScore = (customEmotion: string): number => {
+  const m = customEmotion.toLowerCase().trim();
+  
+  // 1. Check direct map
+  if (emotionScores[m] !== undefined) {
+    return emotionScores[m];
+  }
+  
+  // 2. Substring matching arrays
+  const positiveKeywords = [
+  'happy', 'good', 'chill', 'hype', 'peace', 'great', 'motivate', 
+  'producti', 'optimis', 'excit', 'proud', 'grate', 'amaz', 
+  'awesom', 'wonder', 'fantast', 'calm', 'relax', 'content'
+  ];
+
+const negativeKeywords = [
+  'sad', 'bad', 'tire', 'down', 'stress', 'hurt', 'exhaust', 
+  'anxio', 'worr', 'overwhelm', 'burnout', 'angr', 'mad', 'furi', 
+  'annoy', 'frustrat', 'upset', 'depress', 'lone', 'scare', 
+  'fear', 'panick', 'guilt', 'sham', 'griev', 'cry'
+  ];
+
+  if (positiveKeywords.some(word => m.includes(word))) return 80;
+  if (negativeKeywords.some(word => m.includes(word))) return 20;
+  
+  // 3. Perfect baseline fallback
+  return 50; 
+};
+
+// --- UPDATED: DYNAMIC FALLBACK UI ENGINE ---
 const getUIEmotionData = (hfMood: string) => {
   const m = hfMood?.toLowerCase() || 'neutral';
+  const formattedLabel = m.charAt(0).toUpperCase() + m.slice(1);
+
+  // 1. Strict Dictionary Matches (GoEmotions)
   if (['admiration', 'amusement', 'approval', 'caring', 'desire', 'excitement', 'gratitude', 'joy', 'love', 'optimism', 'pride', 'relief'].includes(m)) {
-    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-green-600 bg-green-50 border-green-200', category: 'Happy' };
+    return { label: formattedLabel, color: 'text-green-600 bg-green-50 border-green-200', category: 'Happy' };
   }
   if (['curiosity', 'realization', 'surprise'].includes(m)) {
-    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-blue-600 bg-blue-50 border-blue-200', category: 'Neutral' };
+    return { label: formattedLabel, color: 'text-blue-600 bg-blue-50 border-blue-200', category: 'Neutral' };
   }
   if (['confusion', 'embarrassment', 'fear', 'nervousness'].includes(m)) {
-    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-purple-600 bg-purple-50 border-purple-200', category: 'Anxious' };
+    return { label: formattedLabel, color: 'text-purple-600 bg-purple-50 border-purple-200', category: 'Anxious' };
   }
   if (['anger', 'annoyance', 'disappointment', 'disapproval', 'disgust', 'grief', 'remorse', 'sadness'].includes(m)) {
-    return { label: m.charAt(0).toUpperCase() + m.slice(1), color: 'text-orange-600 bg-orange-50 border-orange-200', category: 'Stressed' };
+    return { label: formattedLabel, color: 'text-orange-600 bg-orange-50 border-orange-200', category: 'Stressed' };
   }
-  return { label: 'Neutral', color: 'text-gray-600 bg-gray-50 border-gray-200', category: 'Neutral' };
+
+  // 2. NEW: Smart Keyword Matching for Custom Emotions
+  const positiveKeywords = [
+  'happy', 'good', 'chill', 'hype', 'peace', 'great', 'motivate', 
+  'producti', 'optimis', 'excit', 'proud', 'grate', 'amaz', 
+  'awesom', 'wonder', 'fantast', 'calm', 'relax', 'content'
+  ];
+
+const negativeKeywords = [
+  'sad', 'bad', 'tire', 'down', 'stress', 'hurt', 'exhaust', 
+  'anxio', 'worr', 'overwhelm', 'burnout', 'angr', 'mad', 'furi', 
+  'annoy', 'frustrat', 'upset', 'depress', 'lone', 'scare', 
+  'fear', 'panick', 'guilt', 'sham', 'griev', 'cry'
+  ];
+
+  if (positiveKeywords.some(word => m.includes(word))) {
+    return { label: formattedLabel, color: 'text-green-600 bg-green-50 border-green-200', category: 'Happy' };
+  }
+  
+  if (negativeKeywords.some(word => m.includes(word))) {
+    // Falls back to the Stressed (Orange) styling for negative custom words like "Exhausted"
+    return { label: formattedLabel, color: 'text-orange-600 bg-orange-50 border-orange-200', category: 'Stressed' }; 
+  }
+  
+  // 3. True Unknown Fallback (e.g., "Hungry", "Busy")
+  return { label: formattedLabel, color: 'text-stone-600 bg-stone-50 border-stone-200', category: 'Neutral' };
 };
 
 export default function ArchivePage() {
@@ -67,9 +126,8 @@ export default function ArchivePage() {
           try { parsed = JSON.parse(parsed); } catch (e) {}
         }
 
-        // --- NEW CHECK: Handle the explicit primary/background object format ---
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.primary) {
-          parsed = parsed.primary; // Reassign 'parsed' to be the primary array!
+          parsed = parsed.primary; 
         }
 
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -83,7 +141,10 @@ export default function ArchivePage() {
 
       const emotionKey = emotion.toLowerCase(); 
       emotionCounts[emotionKey] = (emotionCounts[emotionKey] || 0) + 1;
-      const score = emotionScores[emotionKey] !== undefined ? emotionScores[emotionKey] : 50; 
+      
+      // --- FIXED: Utilizes our safe getCustomScore function now ---
+      const score = getCustomScore(emotionKey); 
+      
       const dateKey = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); 
       
       if (!dailyScores[dateKey]) dailyScores[dateKey] = { total: 0, count: 0 };
@@ -125,7 +186,7 @@ export default function ArchivePage() {
         title: "Daily Reflection", 
         userText: formattedChat,               
         snippet: entry.narrative || "No summary available...",
-        actions: parsedActions                 
+        actions: parsedActions                  
       };
     });
 
@@ -194,7 +255,6 @@ export default function ArchivePage() {
     fetchData();
   }, [supabase, timeFilter, selectedDate, refreshKey]);
 
-
   const toggleActionCompletion = async (entryId: string, actionIndex: number) => {
     if (!selectedEntry || selectedEntry.id !== entryId) return;
 
@@ -218,7 +278,6 @@ export default function ArchivePage() {
     if (error) console.error("Failed to save action item to database:", error);
   };
   
-  // --- NEW: The Deletion Engine ---
   const handleDeleteEntry = async (entryId: string) => {
     if (!confirm("Are you sure you want to delete this reflection? This cannot be undone.")) return;
 
@@ -232,8 +291,8 @@ export default function ArchivePage() {
       return;
     }
 
-    setSelectedEntry(null); // Close the modal
-    setRefreshKey(prev => prev + 1); // Trigger charts to recalculate instantly!
+    setSelectedEntry(null); 
+    setRefreshKey(prev => prev + 1); 
   };
 
   const filteredEntries = journalEntries.filter((entry) => {
@@ -266,7 +325,6 @@ export default function ArchivePage() {
           </div>
 
           <div className="flex flex-col xl:flex-row items-start xl:items-center gap-5 mb-8 w-full">
-            
             <div className="relative w-full xl:max-w-md shrink-0">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input 
@@ -365,7 +423,6 @@ export default function ArchivePage() {
                   </div>
                 </div>
 
-                {/* --- UPGRADATION: DYNAMIC PATTERN INSIGHTS CARD --- */}
                 <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex gap-5 items-start">
                   <div className="bg-[#FCF4F2] p-3 rounded-2xl shrink-0">
                     <Sparkles className="w-6 h-6 text-[#D28C81]" />
@@ -527,7 +584,6 @@ export default function ArchivePage() {
             </div>
 
             <div className="p-6 overflow-y-auto custom-scrollbar flex-grow space-y-6 bg-gray-50 rounded-b-3xl">
-              
               {selectedEntry.userText && (
                 <div>
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Conversation Transcript</h4>
@@ -548,14 +604,13 @@ export default function ArchivePage() {
 
               {selectedEntry.actions && (
                 <div>
-                  <h4 className="text-xs font-bold text-[#D9A083] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <h4 className="text-xs font-bold text-[#7F7F7F] uppercase tracking-wider mb-2 flex items-center gap-1.5">
                     <TrendingUp className="w-3 h-3" /> Action Items
                   </h4>
                   <div className="bg-white p-5 rounded-2xl border border-[#F3E8E0] shadow-sm">
                     {Array.isArray(selectedEntry.actions) ? (
                       <ul className="space-y-4">
                         {selectedEntry.actions.map((action: any, index: number) => {
-                          
                           if (typeof action === 'object' && action.title && action.desc) {
                             return (
                               <li key={action.id || index} className="flex items-start gap-3">
@@ -599,7 +654,7 @@ export default function ArchivePage() {
                 </div>
               )}
             </div>
-            {/* --- NEW: DELETE BUTTON FOOTER --- */}
+
             <div className="p-4 border-t border-gray-100 flex justify-end bg-white rounded-b-3xl shrink-0">
               <button
                 onClick={() => handleDeleteEntry(selectedEntry.id)}

@@ -1,12 +1,14 @@
+"use client";
+
 import { Bot, User as UserIcon } from "lucide-react";
-import { useEffect, useRef } from "react"; // <-- 1. ADD THIS IMPORT
+import { useEffect, useRef } from "react";
 
 export type Message = {
   id: string;
   role: "ai" | "user";
   content: string;
   time: string;
-  emotions?: string[]; 
+  emotions?: any[]; // Loosened to accept strings or raw formats safely
 };
 
 interface JournalFeedProps {
@@ -14,8 +16,41 @@ interface JournalFeedProps {
   isTyping?: boolean;
 }
 
+// --- SMART DYNAMIC UI FALLBACK ENGINE ---
+const getUIEmotionData = (hfMood: string) => {
+  const m = hfMood?.toLowerCase() || 'neutral';
+  const formattedLabel = m.charAt(0).toUpperCase() + m.slice(1);
+
+  // 1. Strict Dictionary Matches (GoEmotions 28 Labels)
+  if (['admiration', 'amusement', 'approval', 'caring', 'desire', 'excitement', 'gratitude', 'joy', 'love', 'optimism', 'pride', 'relief'].includes(m)) {
+    return { label: formattedLabel, color: 'text-green-600 bg-green-50 border-green-200' };
+  }
+  if (['curiosity', 'realization', 'surprise'].includes(m)) {
+    return { label: formattedLabel, color: 'text-blue-600 bg-blue-50 border-blue-200' };
+  }
+  if (['confusion', 'embarrassment', 'fear', 'nervousness'].includes(m)) {
+    return { label: formattedLabel, color: 'text-purple-600 bg-purple-50 border-purple-200' };
+  }
+  if (['anger', 'annoyance', 'disappointment', 'disapproval', 'disgust', 'grief', 'remorse', 'sadness'].includes(m)) {
+    return { label: formattedLabel, color: 'text-orange-600 bg-orange-50 border-orange-200' };
+  }
+
+  // 2. Future-Proofing for Custom Entries (if added later)
+  const positiveKeywords = ['happy', 'good', 'chill', 'hype', 'peace', 'great', 'motivate', 'producti', 'optimis', 'excit', 'proud', 'grate'];
+  const negativeKeywords = ['sad', 'bad', 'tire', 'down', 'stress', 'hurt', 'exhaust', 'anxio', 'worr', 'overwhelm', 'burnout', 'angr', 'mad', 'annoy', 'frustrat'];
+
+  if (positiveKeywords.some(word => m.includes(word))) {
+    return { label: formattedLabel, color: 'text-green-600 bg-green-50 border-green-200' };
+  }
+  if (negativeKeywords.some(word => m.includes(word))) {
+    return { label: formattedLabel, color: 'text-orange-600 bg-orange-50 border-orange-200' };
+  }
+
+  // 3. True Unknown Fallback
+  return { label: formattedLabel, color: 'text-stone-600 bg-stone-50 border-stone-200' };
+};
+
 export default function JournalFeed({ messages = [], isTyping }: JournalFeedProps) {
-  // 2. ADD THIS REF AND SCROLL LOGIC
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -24,8 +59,7 @@ export default function JournalFeed({ messages = [], isTyping }: JournalFeedProp
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]); // Scroll whenever messages update OR when typing indicator toggles
-  // ------------------------------------
+  }, [messages, isTyping]);
 
   return (
     <div className="flex flex-col gap-6 w-full pb-8">
@@ -46,7 +80,7 @@ export default function JournalFeed({ messages = [], isTyping }: JournalFeedProp
           {/* Message Bubble */}
           <div className={`flex flex-col gap-1 ${msg.role === "user" ? "items-end" : ""}`}>
             <span className={`text-[11px] text-[#A3A097] font-semibold tracking-wide uppercase ${msg.role === "user" ? "mr-1" : "ml-1"}`}>
-              {msg.role === "ai" ? "Echo" : "You"} • {msg.time} {/* Changed AI Companion to Echo to match your brand */}
+              {msg.role === "ai" ? "Echo" : "You"} • {msg.time}
             </span>
             
             <div className={`text-[#2A2A2A] p-5 rounded-3xl leading-relaxed text-sm ${
@@ -57,23 +91,39 @@ export default function JournalFeed({ messages = [], isTyping }: JournalFeedProp
               {msg.content}
             </div>
 
-            {/* --- NEW EMOTION TAGS UI --- */}
+            {/* --- FIXED DYNAMIC EMOTION TAGS UI --- */}
             {msg.emotions && msg.emotions.length > 0 && (
-              <div className={`flex gap-2 mt-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                {msg.emotions.map((emotion, idx) => (
-                  <span key={idx} className="bg-[#E8F0FE] text-[#1A73E8] px-3 py-1 rounded-full text-xs font-semibold tracking-wide border border-[#CDE0FA] capitalize">
-                    {emotion}
-                  </span>
-                ))}
+              <div className={`flex flex-wrap gap-2 mt-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg.emotions.map((rawEmotion, idx) => {
+                  // Safely handle strings or objects so the app never crashes
+                  let cleanName = "";
+                  if (typeof rawEmotion === 'string') {
+                    cleanName = rawEmotion;
+                  } else if (Array.isArray(rawEmotion)) {
+                    cleanName = typeof rawEmotion[0] === 'string' ? rawEmotion[0] : (rawEmotion[0]?.name || "Neutral");
+                  } else if (rawEmotion && typeof rawEmotion === 'object') {
+                    cleanName = rawEmotion.name || rawEmotion.label || "Neutral";
+                  }
+
+                  const uiData = getUIEmotionData(cleanName);
+
+                  return (
+                    <span 
+                      key={idx} 
+                      className={`px-3 py-1 rounded-full text-xs font-semibold tracking-wide border ${uiData.color}`}
+                    >
+                      {uiData.label}
+                    </span>
+                  );
+                })}
               </div>
             )}
-            {/* --------------------------- */}
             
           </div>
         </div>
       ))}
       
-      {/* 3. THE TYPING INDICATOR AT THE BOTTOM */}
+      {/* TYPING INDICATOR */}
       {isTyping && (
         <div className="flex gap-4 w-full max-w-2xl justify-start animate-in fade-in duration-300">
           <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center border overflow-hidden bg-[#F0F2EB] border-[#E1E5D9]">
@@ -87,7 +137,6 @@ export default function JournalFeed({ messages = [], isTyping }: JournalFeedProp
         </div>
       )}
 
-      {/* This invisible div is what the page scrolls down to! */}
       <div ref={messagesEndRef} className="h-1" />
     </div>
   );

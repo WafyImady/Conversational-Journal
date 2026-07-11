@@ -62,7 +62,7 @@ function AnalysisContent() {
             const calculatedIntensity = Math.min(60 + ((data.count - 1) * 15), 95);
             return {
               id: index + 1,
-              name: emoName,
+              name: emoName.charAt(0).toUpperCase() + emoName.slice(1).toLowerCase(),
               intensity: calculatedIntensity,
               quote: data.quote,
               count: data.count 
@@ -101,11 +101,26 @@ function AnalysisContent() {
   };
 
   const promoteToSlider = (emotionName: string) => {
-    setBackgroundTags(prev => prev.filter(e => e !== emotionName));
-    setPrimaryEmotions(prev => [
-      { id: Date.now(), name: emotionName, intensity: 50, quote: "Promoted from background" },
-      ...prev
-    ]);
+    // 1. Force formatting
+    const formatted = emotionName.charAt(0).toUpperCase() + emotionName.slice(1).toLowerCase();
+    
+    // 2. Remove it from background tags
+    setBackgroundTags(prev => prev.filter(e => e.toLowerCase() !== emotionName.toLowerCase()));
+    
+    // 3. Only add it to primary if it doesn't already exist!
+    setPrimaryEmotions(prev => {
+      if (prev.some(e => e.name.toLowerCase() === formatted.toLowerCase())) {
+        return prev; // Ignore it, it's already a slider
+      }
+      return [
+        { id: Date.now(), name: formatted, intensity: 50, quote: "Promoted from background" },
+        ...prev
+      ];
+    });
+  };
+
+  const removeBackgroundTag = (tagToRemove: string) => {
+    setBackgroundTags(prev => prev.filter(tag => tag !== tagToRemove));
   };
 
   const handleManualAdd = () => {
@@ -113,7 +128,7 @@ function AnalysisContent() {
       const formatted = newEmotion.trim().charAt(0).toUpperCase() + newEmotion.trim().slice(1).toLowerCase();
       
       // Prevent duplicates
-      if (primaryEmotions.some(e => e.name === formatted)) {
+      if (primaryEmotions.some(e => e.name.toLowerCase() === formatted.toLowerCase())) {
         setNewEmotion("");
         return;
       }
@@ -294,13 +309,31 @@ function AnalysisContent() {
                 <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">Other Detected Frequencies</p>
                 <div className="flex flex-wrap gap-2">
                   {backgroundTags.map((tag, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => promoteToSlider(tag)}
-                      className="bg-white border border-gray-200 text-gray-600 hover:border-[#8EACA0] hover:text-[#8EACA0] px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 shadow-sm transition-all"
+                    <div 
+                      key={idx} 
+                      className="flex items-center bg-white border border-gray-200 rounded-full shadow-sm overflow-hidden"
                     >
-                      <Plus className="w-3 h-3" /> {tag}
-                    </button>
+                      {/* Promote Button */}
+                      <button
+                        onClick={() => promoteToSlider(tag)}
+                        className="text-gray-600 hover:bg-gray-50 hover:text-[#8EACA0] px-3 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors"
+                        title="Promote to primary emotion"
+                      >
+                        <Plus className="w-3 h-3" /> {tag}
+                      </button>
+                      
+                      {/* Divider */}
+                      <div className="w-px h-4 bg-gray-200"></div>
+                      
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => removeBackgroundTag(tag)}
+                        className="px-2 py-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        title="Discard this emotion"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>

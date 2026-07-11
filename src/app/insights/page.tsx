@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Sidebar from "@/components/Sidebar"; 
 import { createClient } from "@/utils/client";
-import { BookOpen, CheckCircle2, Plus, RefreshCw, CheckCircle, Edit2, Loader2 } from "lucide-react";
+import { BookOpen, CheckCircle2, Plus, RefreshCw, CheckCircle, Edit2, Loader2, X } from "lucide-react"; // Added X icon here
 
 interface ActionItem {
   id: number;
@@ -23,14 +23,18 @@ function InsightsContent() {
   const [actions, setActions] = useState<ActionItem[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false); 
   const [isSaving, setIsSaving] = useState(false);
+
+  // --- NEW: EDIT STATE ---
+  const [isEditingNarrative, setIsEditingNarrative] = useState(false);
 
   // --- STATES FOR ADDING CUSTOM ACTIONS ---
   const [isAddingAction, setIsAddingAction] = useState(false);
   const [newActionTitle, setNewActionTitle] = useState("");
   const [newActionDesc, setNewActionDesc] = useState("");
 
-  // --- THE FETCH ENGINE (READ ONLY) ---
+  // --- THE FETCH ENGINE (READ ON INITIAL LOAD) ---
   useEffect(() => {
     const fetchGeneratedInsights = async () => {
       if (!entryId) return;
@@ -45,10 +49,8 @@ function InsightsContent() {
 
         if (dbError) throw dbError;
 
-        // Load the data that was already generated on the Analytics page!
         setNarrative(entryData.narrative || "No narrative generated.");
         
-        // Ensure actions is always an array
         let parsedActions = [];
         if (Array.isArray(entryData.action_items)) {
           parsedActions = entryData.action_items;
@@ -68,20 +70,62 @@ function InsightsContent() {
     fetchGeneratedInsights();
   }, [entryId, supabase]);
 
+  // --- THE REGENERATE ENGINE ---
+  const handleRegenerate = async () => {
+    if (!entryId) return;
+    setIsGenerating(true);
+
+    try {
+      const { data: entryData, error: dbError } = await supabase
+        .from('journal_entries')
+        .select('chat_transcript, emotions')
+        .eq('id', entryId)
+        .single();
+
+      if (dbError) throw dbError;
+
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          transcript: entryData.chat_transcript,
+          emotions: entryData.emotions 
+        }),
+      });
+
+      const aiData = await response.json();
+      if (aiData.error) throw new Error(aiData.error);
+
+      setNarrative(aiData.narrative);
+      setActions(aiData.actions);
+
+    } catch (error) {
+      console.error("Failed to regenerate insights:", error);
+      alert("Failed to regenerate narrative. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const toggleAction = (id: number) => {
     setActions(actions.map(action => 
       action.id === id ? { ...action, completed: !action.completed } : action
     ));
   };
 
-  // --- HANDLER TO SAVE CUSTOM ACTION ---
+  // --- NEW: DELETE ACTION FUNCTION ---
+  const handleDeleteAction = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevents the click from triggering the toggleAction
+    setActions(actions.filter(action => action.id !== id));
+  };
+
   const handleAddAction = () => {
     if (!newActionTitle.trim()) return;
 
     const newCustomAction: ActionItem = {
       id: Date.now(), 
       title: newActionTitle.trim(),
-      desc: newActionDesc.trim(),
+      desc: newActionDesc.trim(), 
       completed: false
     };
 
@@ -91,7 +135,6 @@ function InsightsContent() {
     setIsAddingAction(false);
   };
 
-  // --- THE FINAL SAVE ENGINE ---
   const handleFinalize = async () => {
     if (!entryId) return;
     setIsSaving(true);
@@ -101,7 +144,7 @@ function InsightsContent() {
         .from('journal_entries')
         .update({ 
           narrative: narrative,
-          action_items: actions, // Saves the toggled states and custom actions
+          action_items: actions, 
           status: 'completed',
           completed_at: new Date().toISOString() 
         })
@@ -162,17 +205,40 @@ function InsightsContent() {
               <BookOpen className="w-5 h-5 text-[#8EACA0]" />
               <h2 className="text-xl font-bold font-serif">Structured Narrative</h2>
             </div>
-            <button className="text-gray-400 hover:text-[#D28C81] transition-colors">
-              <Edit2 className="w-4 h-4" />
+            {/* UPDATED: Edit Button Toggle */}
+            <button 
+              onClick={() => setIsEditingNarrative(!isEditingNarrative)}
+              disabled={isGenerating}
+              className={`flex items-center gap-1.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                isEditingNarrative ? "text-[#D28C81]" : "text-gray-400 hover:text-[#D28C81]"
+              }`}
+            >
+              {isEditingNarrative ? "Done Editing" : <><Edit2 className="w-4 h-4" /> Edit</>}
             </button>
           </div>
 
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 relative">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 relative min-h-[300px] h-fit flex flex-col">
             <div className="absolute left-8 top-8 bottom-8 w-px bg-[#FFF0ED]"></div>
-            <div className="pl-6 text-gray-700 leading-relaxed font-serif text-lg whitespace-pre-wrap">
-              <p className="first-letter:text-5xl first-letter:font-bold first-letter:float-left first-letter:mr-3 first-letter:mt-1 first-letter:text-gray-900">
-                {narrative}
-              </p>
+            
+            <div className="pl-6 flex-grow overflow-y-auto custom-scrollbar">
+              {isGenerating ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-2 text-gray-400">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#D28C81]" />
+                  <p className="text-xs font-semibold uppercase tracking-wider">Regenerating text...</p>
+                </div>
+              ) : isEditingNarrative ? (
+                /* UPDATED: Editable Text Area */
+                <textarea
+                  value={narrative}
+                  onChange={(e) => setNarrative(e.target.value)}
+                  className="w-full h-full min-h-[400px] text-gray-700 leading-relaxed font-serif text-lg resize-none bg-transparent focus:outline-none custom-scrollbar"
+                  autoFocus
+                />
+              ) : (
+                <p className="text-gray-700 leading-relaxed font-serif text-lg whitespace-pre-wrap first-letter:text-5xl first-letter:font-bold first-letter:float-left first-letter:mr-3 first-letter:mt-1 first-letter:text-gray-900">
+                  {narrative}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -185,29 +251,44 @@ function InsightsContent() {
           </div>
 
           <div className="space-y-4 mb-6">
-            {actions.map((action) => (
-              <div 
-                key={action.id} 
-                onClick={() => toggleAction(action.id)}
-                className={`bg-white p-5 rounded-2xl shadow-sm border cursor-pointer transition-all flex gap-4 ${
-                  action.completed ? "border-[#8EACA0] bg-[#F7FAF8]" : "border-gray-100 hover:border-gray-200"
-                }`}
-              >
-                <div className="pt-0.5">
-                  <div className={`w-5 h-5 rounded flex items-center justify-center border ${
-                    action.completed ? "bg-[#8EACA0] border-[#8EACA0] text-white" : "border-gray-300 bg-gray-50"
-                  }`}>
-                    {action.completed && <CheckCircle className="w-3.5 h-3.5" />}
-                  </div>
-                </div>
-                <div>
-                  <h4 className={`font-bold text-sm mb-1 ${action.completed ? "text-gray-900 line-through decoration-gray-400" : "text-gray-900"}`}>
-                    {action.title}
-                  </h4>
-                  <p className="text-xs text-gray-500 leading-relaxed">{action.desc}</p>
-                </div>
+            {isGenerating ? (
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 flex justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-[#8EACA0]" />
               </div>
-            ))}
+            ) : (
+              actions.map((action) => (
+                <div 
+                  key={action.id} 
+                  onClick={() => toggleAction(action.id)}
+                  className={`group relative bg-white p-5 rounded-2xl shadow-sm border cursor-pointer transition-all flex gap-4 ${
+                    action.completed ? "border-[#8EACA0] bg-[#F7FAF8]" : "border-gray-100 hover:border-gray-200"
+                  }`}
+                >
+                  <div className="pt-0.5">
+                    <div className={`w-5 h-5 rounded flex items-center justify-center border ${
+                      action.completed ? "bg-[#8EACA0] border-[#8EACA0] text-white" : "border-gray-300 bg-gray-50"
+                    }`}>
+                      {action.completed && <CheckCircle className="w-3.5 h-3.5" />}
+                    </div>
+                  </div>
+                  <div className="pr-6">
+                    <h4 className={`font-bold text-sm mb-1 ${action.completed ? "text-gray-900 line-through decoration-gray-400" : "text-gray-900"}`}>
+                      {action.title}
+                    </h4>
+                    <p className="text-xs text-gray-500 leading-relaxed">{action.desc}</p>
+                  </div>
+
+                  {/* NEW: Delete Action Button */}
+                  <button
+                    onClick={(e) => handleDeleteAction(action.id, e)}
+                    className="absolute top-4 right-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all outline-none"
+                    title="Delete Action"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
 
           {/* INTERACTIVE ADD ACTION UI */}
@@ -251,7 +332,8 @@ function InsightsContent() {
           ) : (
             <button 
               onClick={() => setIsAddingAction(true)}
-              className="w-full py-4 border-2 border-dashed border-[#F5E6E3] rounded-2xl text-[#D28C81] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#FCF4F2] transition-colors"
+              disabled={isGenerating}
+              className="w-full py-4 border-2 border-dashed border-[#F5E6E3] rounded-2xl text-[#D28C81] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#FCF4F2] transition-colors disabled:opacity-50"
             >
               <Plus className="w-4 h-4" />
               Add Custom Action
@@ -264,15 +346,20 @@ function InsightsContent() {
       <hr className="border-t-2 border-dashed border-[#F0EBE1] my-8" />
 
       {/* Bottom Action Bar */}
-      <div className="flex justify-end items-center mb-8">
-        
-        {/* Note: Regenerate button was removed since generation happens on the Analytics page now.
-            If you want it back, you'd need to re-add the API fetch logic just for that button! */}
+      <div className="flex justify-between items-center mb-8">
+        <button 
+          onClick={handleRegenerate}
+          disabled={isGenerating || isSaving}
+          className="px-6 py-3 border border-[#F5E6E3] text-[#D28C81] font-semibold text-sm rounded-full flex items-center gap-2 hover:bg-[#FCF4F2] transition-colors bg-white disabled:bg-gray-50 disabled:text-gray-400"
+        >
+          <RefreshCw className={`w-4 h-4 ${isGenerating ? "animate-spin" : ""}`} />
+          Regenerate Narrative
+        </button>
 
         <div className="flex items-center gap-6">
           <button 
             onClick={handleFinalize}
-            disabled={isSaving}
+            disabled={isSaving || isGenerating}
             className="px-8 py-3 bg-[#D28C81] hover:bg-[#C17A6F] disabled:bg-gray-400 text-white font-semibold text-sm rounded-full flex items-center gap-2 shadow-sm transition-colors"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
