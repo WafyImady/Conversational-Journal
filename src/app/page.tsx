@@ -20,6 +20,7 @@ function DashboardContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAuthChecking, setIsAuthChecking] = useState(true); 
   const [isTyping, setIsTyping] = useState(false);
+  const [chatStartTime, setChatStartTime] = useState<string | null>(null);
 
   // --- NEW: INCOMPLETE SESSION TRACKER ---
   // Add createdAt to the state interface
@@ -95,6 +96,14 @@ function DashboardContent() {
 
   // --- THE UPGRADED CHAT ENGINE ---
   const handleNewMessage = async (text: string) => {
+    // 1. CAPTURE EXACT START TIME
+    // If messages length is 1, it means only the AI greeting exists. This is the user's first reply!
+    let exactStartTime = chatStartTime;
+    if (messages.length === 1 && !exactStartTime) {
+      exactStartTime = new Date().toISOString();
+      setChatStartTime(exactStartTime);
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -118,7 +127,9 @@ function DashboardContent() {
           .insert({
             user_id: session.user.id,
             status: 'chatting',
-            chat_transcript: currentTranscript 
+            chat_transcript: currentTranscript,
+            // 2. OVERRIDE DATABASE TIME WITH CLIENT START TIME
+            created_at: exactStartTime || new Date().toISOString() 
           })
           .select('id')
           .single();
