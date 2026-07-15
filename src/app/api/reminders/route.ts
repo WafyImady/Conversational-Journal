@@ -2,9 +2,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// === NEW: Force Next.js to skip this during build ===
+export const dynamic = 'force-dynamic'; 
+// ====================================================
 
-// We must use the Service Role Key to bypass RLS and read ALL users
+// === UPDATED: Add a fallback string to prevent crashes ===
+const resend = new Resend(process.env.RESEND_API_KEY || 'default_key');
+// =========================================================
+
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY! 
