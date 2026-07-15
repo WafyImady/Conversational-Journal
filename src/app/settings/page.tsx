@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { createClient } from "@/utils/client"; 
 import { useRouter } from "next/navigation"; 
-import { BookOpen, Clock, SlidersHorizontal, User, CheckCircle2, Circle, Bell, Mail, Save, Loader2, LogOut } from "lucide-react"; // Added LogOut!
+import { BookOpen, Clock, SlidersHorizontal, CheckCircle2, Circle, Mail, Save, Loader2, LogOut } from "lucide-react"; 
 
 export default function SettingsPage() {
   const supabase = createClient();
@@ -18,10 +18,11 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   
   const [narrativeStyle, setNarrativeStyle] = useState("Analytical");
-  const [activeDays, setActiveDays] = useState(["M", "T", "W", "T", "F"]);
-  const [pushEnabled, setPushEnabled] = useState(true);
-  const [emailEnabled, setEmailEnabled] = useState(false);
   const [responseLength, setResponseLength] = useState("Moderate");
+  
+  // === UPDATED: Defaults ===
+  const [activeDays, setActiveDays] = useState<string[]>([]); // Starts unselected
+  const [emailEnabled, setEmailEnabled] = useState(false); // Opt-in required (default false)
 
   useEffect(() => {
     async function loadUserAndSettings() {
@@ -48,8 +49,11 @@ export default function SettingsPage() {
         setDisplayName(data.display_name || ""); 
         setNarrativeStyle(data.narrative_style);
         setResponseLength(data.response_length);
-        setPushEnabled(data.push_enabled);
-        setEmailEnabled(data.email_enabled);
+        
+        // Ensure we load saved values safely
+        setEmailEnabled(data.email_enabled || false);
+        // If you are saving active_days to the DB, load it here:
+        // setActiveDays(data.active_days || []); 
       }
       setIsLoading(false);
     }
@@ -57,13 +61,10 @@ export default function SettingsPage() {
     loadUserAndSettings();
   }, [router, supabase]); 
 
-  // NEW: Secure Logout Function
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (!error) {
-      router.push("/login"); // Redirect to your login page
-    } else {
-      console.error("Error logging out:", error.message);
+      router.push("/login"); 
     }
   };
 
@@ -72,6 +73,7 @@ export default function SettingsPage() {
 
     setIsSaving(true);
     
+    // === UPDATED: Removed push_enabled ===
     const { error } = await supabase
       .from('user_settings')
       .upsert({ 
@@ -79,8 +81,8 @@ export default function SettingsPage() {
         display_name: displayName, 
         narrative_style: narrativeStyle,
         response_length: responseLength,
-        push_enabled: pushEnabled,
         email_enabled: emailEnabled,
+        active_days: activeDays, // Uncomment this if you added it to your Supabase table!
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' }); 
 
@@ -89,9 +91,30 @@ export default function SettingsPage() {
     if (error) {
       console.error("Error saving settings:", error);
       alert("Failed to save preferences.");
-    } else {
-      console.log("Settings successfully saved!");
     }
+  };
+
+  const handleDiscard = async () => {
+    if (!userId) return;
+    setIsLoading(true); 
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (data) {
+      setDisplayName(data.display_name || ""); 
+      setNarrativeStyle(data.narrative_style);
+      setResponseLength(data.response_length);
+      setEmailEnabled(data.email_enabled || false);
+      setActiveDays(data.active_days || []);
+    } else {
+      // If no data, reset to defaults
+      setActiveDays([]);
+      setEmailEnabled(false);
+    }
+    setIsLoading(false);
   };
 
   const daysOfWeek = [
@@ -108,9 +131,7 @@ export default function SettingsPage() {
       <div className="flex h-screen items-center justify-center bg-[#FAF9F6]">
         <div className="flex flex-col items-center gap-4 text-[#5A7A62]">
           <Loader2 className="w-10 h-10 animate-spin" />
-          <p className="text-sm font-semibold tracking-wider uppercase">
-            Loading preferences...
-          </p>
+          <p className="text-sm font-semibold tracking-wider uppercase">Loading preferences...</p>
         </div>
       </div>
     );
@@ -123,7 +144,6 @@ export default function SettingsPage() {
       <main className="flex-grow h-screen overflow-y-auto relative flex flex-col items-center">
         <div className="p-6 lg:p-10 w-full max-w-4xl flex-grow">
           
-          {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-extrabold text-gray-900 mb-2 font-serif tracking-tight">Journaling Preferences</h1>
             <p className="text-gray-500 text-sm">Customize how your AI companion interacts with your daily entries.</p>
@@ -131,11 +151,9 @@ export default function SettingsPage() {
 
           <div className="space-y-6 pb-20">
             
-            {/* EDITABLE PROFILE CARD WITH LOGOUT */}
+            {/* PROFILE CARD */}
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-              
               <div className="flex items-center gap-5 w-full">
-                {/* Dynamic Avatar using Display Name */}
                 <div className="w-20 h-20 rounded-2xl bg-[#5A7A62] flex items-center justify-center relative shrink-0 shadow-inner">
                   <span className="text-white text-3xl font-bold uppercase tracking-wider">
                     {displayName ? displayName.charAt(0) : (userEmail ? userEmail.charAt(0) : "U")}
@@ -145,11 +163,8 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Editable Name Input */}
                 <div className="flex-grow max-w-sm space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">
-                    What should Echo call you?
-                  </label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">What should Echo call you?</label>
                   <input 
                     type="text" 
                     value={displayName}
@@ -161,7 +176,6 @@ export default function SettingsPage() {
                 </div>
               </div>
               
-              {/* LOG OUT BUTTON ONLY */}
               <div className="shrink-0 mt-4 md:mt-0 w-full md:w-auto">
                 <button 
                   onClick={handleLogout}
@@ -171,7 +185,6 @@ export default function SettingsPage() {
                   Log Out
                 </button>
               </div>
-              
             </div>
 
             {/* NARRATIVE STYLE CARD */}
@@ -252,30 +265,33 @@ export default function SettingsPage() {
                   <div>
                     <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Repeat On</label>
                     <div className="flex gap-2">
-                      {daysOfWeek.map((day) => (
-                        <button key={day.id} onClick={() => toggleDay(day.id)} className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${activeDays.includes(day.id) ? "bg-[#5A7A62] text-white" : "bg-white border border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
+                      {daysOfWeek.map((day, idx) => (
+                        <button key={`${day.id}-${idx}`} onClick={() => toggleDay(day.id)} className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${activeDays.includes(day.id) ? "bg-[#5A7A62] text-white" : "bg-white border border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
                           {day.label}
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
-                <div className="flex-1 bg-[#FAFCFB] rounded-2xl p-6 border border-[#EAF2ED]">
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3"><Bell className="w-5 h-5 text-gray-500" /><span className="text-sm font-semibold text-gray-900">Push Notifications</span></div>
-                      <button onClick={() => setPushEnabled(!pushEnabled)} className={`w-12 h-6 rounded-full transition-colors relative ${pushEnabled ? 'bg-[#5A7A62]' : 'bg-gray-200'}`}>
-                        <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform ${pushEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                      </button>
+                
+                {/* === UPDATED: REMOVED PUSH NOTIFICATIONS, KEPT EMAIL ONLY === */}
+                <div className="flex-1 bg-[#FAFCFB] rounded-2xl p-6 border border-[#EAF2ED] flex flex-col justify-center">
+                  <div className="space-y-2 mb-4">
+                    <h4 className="text-sm font-bold text-gray-900">Reminder Delivery</h4>
+                    <p className="text-xs text-gray-500 leading-relaxed">Receive a beautifully formatted daily prompt straight to your inbox to keep your journaling streak alive.</p>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-gray-100 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <Mail className="w-5 h-5 text-gray-500" />
+                      <span className="text-sm font-semibold text-gray-900">Email Digest</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3"><Mail className="w-5 h-5 text-gray-500" /><span className="text-sm font-semibold text-gray-900">Email Digest</span></div>
-                      <button onClick={() => setEmailEnabled(!emailEnabled)} className={`w-12 h-6 rounded-full transition-colors relative ${emailEnabled ? 'bg-[#5A7A62]' : 'bg-gray-200'}`}>
-                        <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform ${emailEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                      </button>
-                    </div>
+                    <button onClick={() => setEmailEnabled(!emailEnabled)} className={`w-12 h-6 rounded-full transition-colors relative ${emailEnabled ? 'bg-[#5A7A62]' : 'bg-gray-200'}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform ${emailEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                    </button>
                   </div>
                 </div>
+                {/* ========================================================== */}
+
               </div>
             </div>
 
@@ -285,7 +301,11 @@ export default function SettingsPage() {
         {/* FLOATING ACTION BAR */}
         <div className="sticky bottom-0 w-full bg-white/80 backdrop-blur-md border-t border-gray-100 p-4 flex justify-center z-50 mt-auto">
           <div className="w-full max-w-4xl flex justify-end gap-4 md:px-0">
-            <button className="px-6 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+            <button 
+              onClick={handleDiscard}
+              disabled={isSaving}
+              className="px-6 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
               Discard Changes
             </button>
             <button 

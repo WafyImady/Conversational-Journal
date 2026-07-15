@@ -152,6 +152,14 @@ function AnalysisContent() {
         .filter(e => e.intensity > 20)
         .map(e => ({ name: e.name, intensity: e.intensity })); 
       
+      // === ADD THIS VALIDATION BLOCK ===
+      if (validSliders.length === 0) {
+        alert("Please ensure at least one primary emotion has an intensity above 20% before analyzing.");
+        setIsSaving(false); // Stop the loading spinner
+        return; // Stop the save process entirely
+      }
+      // =================================
+      
       const finalEmotionData = { primary: validSliders, background: backgroundTags };
 
       // FETCH TRANSCRIPT
