@@ -57,7 +57,16 @@ export async function GET(request: Request) {
           from: 'Echo Journal <onboarding@resend.dev>', 
           to: targetEmail, 
           subject: 'Time to reflect with Echo 🌙',
-          html: `... your HTML here ...`
+          html: `
+            <div style="font-family: sans-serif; color: #333; padding: 20px;">
+              <h2 style="color: #5A7A62;">Hello ${user.display_name || 'there'}!</h2>
+              <p>Just a gentle reminder that it is time for your daily reflection.</p>
+              <p>Take a few minutes to unload your thoughts and let Echo analyze your day.</p>
+              <a href="https://conversational-journal.vercel.app/" style="display: inline-block; background-color: #5A7A62; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; margin-top: 10px;">
+                Open Echo
+              </a>
+            </div>
+          `
         });
       } catch (sendError) {
         // If Resend blocks your friend, it just prints this line and peacefully continues to the next user!
