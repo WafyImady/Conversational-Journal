@@ -1,5 +1,4 @@
 
-```markdown
 # Echo 📝
 
 An AI-assisted web-based conversational journaling system designed to provide an interactive and reflective journaling experience.
