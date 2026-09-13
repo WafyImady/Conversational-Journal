@@ -31,7 +31,7 @@ Echo transforms traditional journaling into a dynamic conversation. By integrati
 ### Installation
 
 1. **Clone the repository**
-   ```bash
+```bash
    git clone [https://github.com/yourusername/echo.git](https://github.com/yourusername/echo.git)
    cd echo
 
