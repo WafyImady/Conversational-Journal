@@ -1,4 +1,5 @@
 
+```markdown
 # Echo 📝
 
 An AI-assisted web-based conversational journaling system designed to provide an interactive and reflective journaling experience.
@@ -71,7 +72,7 @@ Special thanks to Ts. Dr. Manoranjitham A/P Muniandy for supervision and guidanc
 
 ## Author
 
-**Wafyi**
+**Wafy**
 
 ```
 
